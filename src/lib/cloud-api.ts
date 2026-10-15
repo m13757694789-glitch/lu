@@ -2,7 +2,7 @@ import { z } from "zod";
 import { AppError, idSchema } from "./validation.ts";
 import { readJson } from "./api-router.ts";
 import { cloudClient, cloudConfig, requireOwner } from "./cloud-auth.ts";
-import { CloudStore, checked } from "./cloud-store.ts";
+import { CloudStore, checked, checkedAll } from "./cloud-store.ts";
 import { beginUpload, signPart, completePart, completeUpload, removeCloudFile, serveCloudFile } from "./cloud-files.ts";
 import type { Attachment } from "./models.ts";
 
@@ -35,7 +35,7 @@ export async function handleCloud(request:Request) {
     else if(method==='GET'&&resource==='search'&&!id) result=await store.search((new URL(request.url).searchParams.get('q')||'').slice(0,200));
     else if(method==='GET'&&resource==='health'&&!id) result={app:'ClassNote',version:'1.1.0',storage:'supabase-private'};
     else if(method==='GET'&&resource==='usage'&&!id) {
-      const rows=await checked<{size:number}[]>(client.from('cn_attachments').select('size'));
+      const rows=await checkedAll<{size:number}>((start,end)=>client.from('cn_attachments').select('size').order('id').range(start,end));
       result={used:rows.reduce((sum,row)=>sum+row.size,0),limit:1024**3};
     }
     else if(method==='GET'&&resource==='lessons'&&id) result=await store.detail(id,true);
@@ -53,10 +53,10 @@ export async function handleCloud(request:Request) {
     else if(method==='PATCH'&&resource==='settings'&&!id) {await store.settings(await readJson(request));result={ok:true};}
     else if(method==='DELETE'&&resource==='files'&&id) {await removeCloudFile(store,id);result={ok:true};}
     else if(method==='DELETE'&&(resource==='courses'||resource==='lessons')&&id) {
-      const lessonIds=resource==='lessons'?[id]:(await checked<{id:string}[]>(client.from('cn_lessons').select('id').eq('courseId',id))).map(row=>row.id);
+      const lessonIds=resource==='lessons'?[id]:(await checkedAll<{id:string}>((start,end)=>client.from('cn_lessons').select('id').eq('courseId',id).order('id').range(start,end))).map(row=>row.id);
       if(resource==='courses') await store.course(id); else await store.lesson(id);
       for(const lessonId of lessonIds) {
-        const files=await checked<{id:string}[]>(client.from('cn_attachments').select('id').eq('lessonId',lessonId));
+        const files=await checkedAll<{id:string}>((start,end)=>client.from('cn_attachments').select('id').eq('lessonId',lessonId).order('id').range(start,end));
         for(const file of files) await removeCloudFile(store,file.id,true,true);
       }
       await checked(client.from(resource==='courses'?'cn_courses':'cn_lessons').delete().eq('id',id)); result={ok:true};

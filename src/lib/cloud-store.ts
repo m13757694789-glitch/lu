@@ -21,9 +21,19 @@ export async function checked<T>(query: PromiseLike<{ data: unknown; error: { co
   const normalize=(value:unknown)=>{if(value&&typeof value==='object'&&!Array.isArray(value)){const row={...value} as Record<string,unknown>;for(const key of ['createdAt','updatedAt','visitedAt']) if(typeof row[key]==='string') row[key]=new Date(row[key]).toISOString();return row;}return value;};
   return (Array.isArray(result.data)?result.data.map(normalize):normalize(result.data)) as T;
 }
+export async function checkedAll<T>(query: (start: number, end: number) => PromiseLike<{ data: unknown; error: { code?: string; message: string } | null }>): Promise<T[]> {
+  const rows: T[] = [];
+  for (let start = 0; ; start += 1000) {
+    const page = await checked<T[]>(query(start, start + 999));
+    rows.push(...page);
+    if (page.length < 1000) return rows;
+  }
+}
 
 export class CloudStore {
-  constructor(readonly client: SupabaseClient, readonly owner: string) {}
+  readonly client: SupabaseClient;
+  readonly owner: string;
+  constructor(client: SupabaseClient, owner: string) { this.client = client; this.owner = owner; }
   async course(id: string) {
     const result = await checked<Course | null>(this.client.from('cn_courses').select(courseColumns).eq('id',id).maybeSingle());
     if (!result) throw new AppError("课程不存在",404); return result;
@@ -55,7 +65,7 @@ export class CloudStore {
   }
   async detail(id: string, visit = false) {
     if (visit) await checked(this.client.from('cn_lessons').update({visitedAt:new Date().toISOString()}).eq('id',id));
-    const [lesson,attachments] = await Promise.all([this.lesson(id),checked<Attachment[]>(this.client.from('cn_attachments').select(fileColumns).eq('lessonId',id).eq('ready',true).order('createdAt'))]);
+    const [lesson,attachments] = await Promise.all([this.lesson(id),checkedAll<Attachment>((start,end)=>this.client.from('cn_attachments').select(fileColumns).eq('lessonId',id).eq('ready',true).order('createdAt').order('id').range(start,end))]);
     return {...lesson,attachments};
   }
   async createCourse(input: unknown) {
