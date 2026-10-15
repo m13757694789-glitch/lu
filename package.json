@@ -1,0 +1,44 @@
+{
+  "name": "classnote",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "node scripts/next.mjs dev",
+    "build": "node scripts/next.mjs build",
+    "start": "node scripts/next.mjs start",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/storage.test.ts"
+  },
+  "dependencies": {
+    "@blocknote/core": "latest",
+    "@blocknote/mantine": "latest",
+    "@blocknote/react": "latest",
+    "@mantine/core": "^8.3.11",
+    "@mantine/hooks": "^8.3.11",
+    "@mantine/utils": "^6.0.22",
+    "archiver": "^7.0.1",
+    "katex": "latest",
+    "lucide-react": "latest",
+    "next": "latest",
+    "radix-ui": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "yauzl": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "latest",
+    "@types/archiver": "^6.0.3",
+    "@types/katex": "latest",
+    "@types/node": "^24",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@types/yauzl": "latest",
+    "tailwindcss": "latest",
+    "typescript": "latest"
+  }
+}
