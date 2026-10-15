@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=20.19.0"
   },
   "scripts": {
     "dev": "node scripts/next.mjs dev",
     "build": "node scripts/next.mjs build",
     "start": "node scripts/next.mjs start",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test tests/storage.test.ts"
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
   },
   "dependencies": {
     "@blocknote/core": "latest",
@@ -20,7 +20,11 @@
     "@mantine/core": "^8.3.11",
     "@mantine/hooks": "^8.3.11",
     "@mantine/utils": "^6.0.22",
+    "@noble/hashes": "^2.4.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.3",
     "archiver": "^7.0.1",
+    "fflate": "^0.8.3",
     "katex": "latest",
     "lucide-react": "latest",
     "next": "latest",

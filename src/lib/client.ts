@@ -1,9 +1,17 @@
 import type { Attachment } from "./models";
+let mode: "local" | "cloud" = "local";
+export function setClientMode(value: "local" | "cloud") { mode = value; }
+export function clientIsCloud() { return mode === "cloud"; }
 export async function api<T>(path: string, method = "GET", data?: unknown): Promise<T> {
   const response = await fetch(`/api/${path}`, { method, headers: data === undefined ? undefined : { "Content-Type": "application/json" }, body: data === undefined ? undefined : JSON.stringify(data), cache: "no-store" });
-  const result = await response.json(); if (!response.ok) throw new Error(result.error || "操作失败，请重试"); return result as T;
+  const text = await response.text(); let result;
+  try { result = text.trim() ? JSON.parse(text) : null; } catch {}
+  if (!response.ok) { if (response.status === 401 && mode === "cloud" && path !== "login") window.dispatchEvent(new Event("classnote-auth-expired")); throw new Error(result?.error || `服务暂时无法响应（${response.status}），请稍后重试`); }
+  if (result === null || result === undefined) throw new Error("服务返回了空响应，请刷新后重试");
+  return result as T;
 }
 export function uploadFile<T = Attachment>(path: string, file: File, progress: (value: number) => void): Promise<T> {
+  if (mode === "cloud") return import("./cloud-client").then(module => module.uploadCloud<T>(path, file, progress));
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest(); xhr.open("POST", `/api/${path}`);
     xhr.setRequestHeader("Content-Type", "application/octet-stream"); xhr.setRequestHeader("x-file-name", encodeURIComponent(file.name)); xhr.setRequestHeader("x-file-size", String(file.size));

@@ -12,9 +12,9 @@ import EditorBoundary from "./editor-boundary";
 const Editor = dynamic(() => import("./document-editor"), { ssr: false, loading: () => <div className="editor-loading"><LoaderCircle className="spin" size={19} /> 正在打开笔记…</div> });
 export type NoteHandle = { flush: () => Promise<boolean> };
 type Draft = { title: string; date: string; content: unknown[]; revision: number; time: string };
-type Props = { lesson: LessonDetail; courseName: string; theme: "light" | "dark"; onSaved: (lesson: Lesson) => void; onHeadings: (headings: Heading[]) => void; onState: (state: SaveState) => void; notify: (text: string) => void };
+type Props = { lesson: LessonDetail; courseName: string; cloud?: boolean; theme: "light" | "dark"; onSaved: (lesson: Lesson) => void; onHeadings: (headings: Heading[]) => void; onState: (state: SaveState) => void; notify: (text: string) => void };
 
-const NotePane = forwardRef<NoteHandle, Props>(function NotePane({ lesson, courseName, theme, onSaved, onHeadings, onState, notify }, ref) {
+const NotePane = forwardRef<NoteHandle, Props>(function NotePane({ lesson, courseName, cloud=false, theme, onSaved, onHeadings, onState, notify }, ref) {
   const [title, setTitle] = useState(lesson.title); const [date, setDate] = useState(lesson.date); const [readOnly, setReadOnly] = useState(false); const [state, setState] = useState<SaveState>("saved"); const [saveError, setSaveError] = useState("");
   const [attachments, setAttachments] = useState(lesson.attachments); const [progress, setProgress] = useState<{ name: string; value: number } | null>(null); const uploading = useRef(0); const [lightbox, setLightbox] = useState("");
   const [importOpen, setImportOpen] = useState(false); const [markdown, setMarkdown] = useState(""); const [preview, setPreview] = useState<unknown[] | null>(null); const [importing, setImporting] = useState(false); const [recovery, setRecovery] = useState<Draft | null>(null);
@@ -22,7 +22,7 @@ const NotePane = forwardRef<NoteHandle, Props>(function NotePane({ lesson, cours
   const pending = useRef({ title: lesson.title, date: lesson.date, content: lesson.content }); const revision = useRef(lesson.revision); const sequence = useRef(0); const savedSequence = useRef(0); const timer = useRef<ReturnType<typeof setTimeout> | null>(null); const running = useRef<Promise<boolean> | null>(null); const alive = useRef(true); const flushRef = useRef<() => Promise<boolean>>(async () => true);
   const draftKey = `classnote-draft-${lesson.id}`;
   const status = useCallback((value: SaveState) => { if (alive.current) setState(value); onState(value); }, [onState]);
-  useEffect(() => { alive.current = true; try { const raw = localStorage.getItem(draftKey); if (raw) { const draft = JSON.parse(raw) as Draft; if (Array.isArray(draft.content) && typeof draft.title === "string" && typeof draft.date === "string") { if (JSON.stringify({ title: draft.title, date: draft.date, content: draft.content }) === JSON.stringify(pending.current)) localStorage.removeItem(draftKey); else setRecovery(draft); } } } catch { notify("无法读取浏览器草稿副本，已保存的笔记仍在本机数据库中"); }
+  useEffect(() => { alive.current = true; try { const raw = localStorage.getItem(draftKey); if (raw) { const draft = JSON.parse(raw) as Draft; if (Array.isArray(draft.content) && typeof draft.title === "string" && typeof draft.date === "string") { if (JSON.stringify({ title: draft.title, date: draft.date, content: draft.content }) === JSON.stringify(pending.current)) localStorage.removeItem(draftKey); else setRecovery(draft); } } } catch { notify("无法读取浏览器草稿副本，已保存的笔记仍在知识库中"); }
     const beforeUnload = (event: BeforeUnloadEvent) => { if (sequence.current !== savedSequence.current || uploading.current > 0) { event.preventDefault(); event.returnValue = ""; } }; window.addEventListener("beforeunload", beforeUnload);
     return () => { alive.current = false; if (timer.current) clearTimeout(timer.current); window.removeEventListener("beforeunload", beforeUnload); };
   }, []);
@@ -43,7 +43,7 @@ const NotePane = forwardRef<NoteHandle, Props>(function NotePane({ lesson, cours
   useImperativeHandle(ref, () => ({ flush }));
   const change = (patch: Partial<typeof pending.current>) => {
     pending.current = { ...pending.current, ...patch }; sequence.current++; status("dirty");
-    try { localStorage.setItem(draftKey, JSON.stringify({ ...pending.current, revision: revision.current, time: new Date().toISOString() })); } catch { notify("浏览器草稿副本无法写入，请保持页面打开，等待本机保存完成"); }
+    try { localStorage.setItem(draftKey, JSON.stringify({ ...pending.current, revision: revision.current, time: new Date().toISOString() })); } catch { notify("浏览器草稿副本无法写入，请保持页面打开，等待保存完成"); }
     if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => { void flushRef.current(); }, 750);
   };
   const upload = async (file: File) => {
@@ -60,7 +60,7 @@ const NotePane = forwardRef<NoteHandle, Props>(function NotePane({ lesson, cours
   };
   const audioFiles = attachments.filter(file => file.kind === "audio");
   return <>
-    <div className="note-utility"><div className="save-status" role="status" data-state={state}>{state === "saved" ? <Check size={14} /> : state === "error" ? <AlertCircle size={14} /> : state === "saving" ? <LoaderCircle size={14} className="spin" /> : <span className="pending-dot" />}{state === "saved" ? "已保存到本机" : state === "saving" ? "保存中…" : state === "dirty" ? "等待保存" : "保存失败"}</div><div className="mode-switch"><button className={!readOnly ? "active" : ""} onClick={() => setReadOnly(false)}><PenLine size={14} />编辑</button><button className={readOnly ? "active" : ""} onClick={() => setReadOnly(true)}><BookOpen size={14} />阅读</button></div></div>
+    <div className="note-utility"><div className="save-status" role="status" data-state={state}>{state === "saved" ? <Check size={14} /> : state === "error" ? <AlertCircle size={14} /> : state === "saving" ? <LoaderCircle size={14} className="spin" /> : <span className="pending-dot" />}{state === "saved" ? cloud ? "已保存到私人云端" : "已保存到本机" : state === "saving" ? "保存中…" : state === "dirty" ? "等待保存" : "保存失败"}</div><div className="mode-switch"><button className={!readOnly ? "active" : ""} onClick={() => setReadOnly(false)}><PenLine size={14} />编辑</button><button className={readOnly ? "active" : ""} onClick={() => setReadOnly(true)}><BookOpen size={14} />阅读</button></div></div>
     <article className={`note-page ${readOnly ? "reading" : ""}`}>
       {recovery && <div className="recovery-banner"><AlertCircle size={18} /><div><strong>发现未保存的草稿</strong><span>恢复前不会覆盖数据库中的版本。</span></div><button className="text-button" onClick={() => { if (!editor.current) return; setTitle(recovery.title); setDate(recovery.date); editor.current.replace(recovery.content); change({ title: recovery.title, date: recovery.date, content: recovery.content }); setRecovery(null); }}>恢复草稿</button><button className="icon-button" aria-label="导出恢复草稿" onClick={() => downloadText(`${recovery.title}-草稿.json`, JSON.stringify(recovery, null, 2), "application/json")}><Download size={15} /></button><button className="icon-button" aria-label="暂不恢复" onClick={() => setRecovery(null)}><X size={15} /></button></div>}
       {saveError && <div className="error-banner" role="alert"><AlertCircle size={18} /><div>{saveError}<small>未保存内容保留在当前页面和浏览器草稿副本中。</small></div><button className="text-button" onClick={() => void flushRef.current()}>重试</button><button className="text-button" onClick={() => downloadText(`${title}-草稿.json`, JSON.stringify(pending.current, null, 2), "application/json")}>导出草稿</button></div>}
