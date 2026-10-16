@@ -54,4 +54,5 @@ Desktop.ini
 .classnote/
 .classnote-test/
 artifacts/
+.codex-remote-attachments/
 test-results/
