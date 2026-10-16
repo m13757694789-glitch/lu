@@ -264,7 +264,7 @@ input::placeholder,textarea::placeholder { color:var(--muted); }
 .upload-panel-heading strong { font-size:12px;font-weight:550; }
 .upload-panel-heading .text-button { font-size:10px;white-space:nowrap; }
 .upload-panel-hint { color:var(--muted);font-size:11px;margin:9px 0 4px; }
-.upload-task-list { max-height:260px;overflow:auto; }
+.upload-task-list { max-height:260px;overflow-y:auto;overflow-x:hidden;padding-right:4px; }
 .upload-task { padding:12px 0;border-top:1px solid var(--line);margin-top:8px; }
 .upload-task-title { display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px; }
 .upload-task-title>span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
