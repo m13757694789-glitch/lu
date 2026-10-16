@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { BookOpen, LockKeyhole, LoaderCircle, ShieldCheck } from "lucide-react";
 import { api, setClientMode } from "@/lib/client";
-import Workspace from "./workspace";
+import WorkspaceSession from "./workspace-session";
+import { recordUIError } from "@/lib/ui-recovery";
 
 type Session = { mode:"local"|"cloud"; authenticated:boolean; email?:string };
 export default function AuthGate() {
@@ -15,8 +16,14 @@ export default function AuthGate() {
     catch(error){setError((error as Error).message);}
   },[]);
   useEffect(()=>{void load();},[load]);
+  useEffect(()=>{
+    const failed=(event:ErrorEvent)=>recordUIError(event.error || new Error(event.message));
+    const rejected=(event:PromiseRejectionEvent)=>recordUIError(event.reason);
+    window.addEventListener('error',failed);window.addEventListener('unhandledrejection',rejected);
+    return()=>{window.removeEventListener('error',failed);window.removeEventListener('unhandledrejection',rejected);};
+  },[]);
   useEffect(()=>{const expired=()=>{setReauth(true);setError('登录已过期，请重新登录。当前笔记与草稿会保留。');};window.addEventListener('classnote-auth-expired',expired);return()=>window.removeEventListener('classnote-auth-expired',expired);},[]);
-  return <>{session?.authenticated&&<Workspace cloud={session.mode==='cloud'} email={session.email} onLogout={()=>{setPassword('');setSession(null);setReauth(false);void load();}} />}
+  return <>{session?.authenticated&&<WorkspaceSession cloud={session.mode==='cloud'} email={session.email} onLogout={()=>{setPassword('');setSession(null);setReauth(false);void load();}} />}
   {(!session?.authenticated||reauth)&&<main className={`auth-page ${reauth?'auth-overlay':''}`}><div className="auth-sheet">
     <div className="auth-brand"><BookOpen size={25}/><span>ClassNote<small>课堂知识库</small></span></div>
     <div className="auth-lock"><LockKeyhole size={27} strokeWidth={1.5}/></div>

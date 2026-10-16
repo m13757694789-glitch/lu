@@ -16,6 +16,7 @@ type NativeBlock = PartialBlock<typeof schema.blockSchema, typeof schema.inlineC
 export type Heading = { id: string; text: string; level: number };
 export type EditorHandle = {
   insertImage: (file: File) => Promise<void>;
+  insertImages: (files: File[], point?: { x: number; y: number }) => Promise<void>;
   parseMarkdown: (text: string) => Promise<unknown[]>;
   append: (blocks: unknown[]) => void;
   replace: (blocks: unknown[]) => void;
@@ -29,15 +30,25 @@ const DocumentEditor = forwardRef<EditorHandle, Props>(function DocumentEditor({
     pasteHandler: ({ defaultPasteHandler }) => defaultPasteHandler({ prioritizeMarkdownOverHTML: true, plainTextAsMarkdown: true }),
   });
   const headings = () => { const result: Heading[] = []; const walk = (blocks: typeof editor.document) => { for (const block of blocks) { if (block.type === "heading") result.push({ id: block.id, text: textOf(block.content), level: block.props.level }); if (block.children?.length) walk(block.children); } }; walk(editor.document); return result; };
+  const insertImages = async (files: File[], point?: { x: number; y: number }) => {
+    if (!upload) return;
+    let anchorId = editor.getTextCursorPosition().block.id;
+    if (point) {
+      const element = document.elementFromPoint(point.x, point.y)?.closest<HTMLElement>("[data-node-type='blockContainer'][data-id]");
+      const target = element?.dataset.id && editor.getBlock(element.dataset.id);
+      if (target) anchorId = target.id;
+    }
+    for (const file of files) {
+      const url = await upload(file);
+      const target = editor.getBlock(anchorId) || editor.document[editor.document.length - 1];
+      const added = editor.insertBlocks([{ type: "image", props: { url, name: file.name, previewWidth: 560 } }], target, "after");
+      if (added[0]) { anchorId = added[0].id; editor.setTextCursorPosition(anchorId, "end"); }
+    }
+  };
   useEffect(() => { onHeadings?.(headings()); }, []);
   useImperativeHandle(ref, () => ({
-    async insertImage(file) {
-      if (!upload) return;
-      // Capture insertion target before awaiting the upload; choosing a file must not move it to the end.
-      const anchor = editor.getTextCursorPosition().block;
-      const url = await upload(file); const added = editor.insertBlocks([{ type: "image", props: { url, name: file.name, previewWidth: 560 } }], anchor, "after");
-      if (added[0]) editor.setTextCursorPosition(added[0], "end");
-    },
+    async insertImage(file) { await insertImages([file]); },
+    insertImages,
     async parseMarkdown(text) {
       // External images become links; importing a note never silently contacts a third-party image host.
       const safe = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, "[$1（外部图片，需另行上传）]($2)");

@@ -256,6 +256,26 @@ input::placeholder,textarea::placeholder { color:var(--muted); }
 .upload-progress span { max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .upload-progress progress { flex:1;accent-color:var(--purple);height:4px; }
 .upload-progress b { font-weight:400;font-size:10px; }
+.file-drag-over { outline:2px dashed var(--purple);outline-offset:-6px; }
+.file-drop-hint { position:fixed;bottom:48px;left:50%;transform:translateX(-50%);z-index:65;max-width:calc(100vw - 32px);padding:14px 20px;border:1px solid var(--purple);border-radius:8px;background:var(--purple-soft);color:var(--ink);box-shadow:var(--shadow);pointer-events:none;font-size:13px; }
+.audio-upload-panel { position:fixed;right:20px;bottom:42px;width:min(340px,calc(100vw - 28px));z-index:35;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:var(--shadow);padding:13px 14px; }
+.upload-panel-heading { display:flex;align-items:center;justify-content:space-between;gap:10px; }
+.upload-panel-heading>button:first-child { display:flex;align-items:center;justify-content:space-between;gap:12px;flex:1;min-width:0;padding:0; }
+.upload-panel-heading strong { font-size:12px;font-weight:550; }
+.upload-panel-heading .text-button { font-size:10px;white-space:nowrap; }
+.upload-panel-hint { color:var(--muted);font-size:11px;margin:9px 0 4px; }
+.upload-task-list { max-height:260px;overflow:auto; }
+.upload-task { padding:12px 0;border-top:1px solid var(--line);margin-top:8px; }
+.upload-task-title { display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px; }
+.upload-task-title>span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.upload-task.completed .upload-task-title>svg { color:var(--green); }
+.upload-task-lesson { display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--purple);font-size:11px;padding:6px 0; }
+.upload-task-state { color:var(--muted);font-size:11px;line-height:1.6; }
+.upload-task.failed .upload-task-state { color:var(--danger); }
+.upload-task progress { display:block;width:100%;height:5px;accent-color:var(--purple);margin-top:7px; }
+.upload-task-actions { display:flex;gap:16px;margin-top:8px; }
+.upload-task-actions button { display:flex;align-items:center;gap:5px;font-size:11px; }
+@media(max-width:760px){.audio-upload-panel{right:14px;bottom:40px;z-index:25}.upload-task-list{max-height:190px}}
 .error-banner,.recovery-banner { display:flex;align-items:center;gap:8px;padding:12px 14px;border:1px solid #d7c8a7;border-radius:6px;background:var(--panel);color:var(--danger);font-size:12px;margin-bottom:20px;line-height:1.7; }
 .error-banner>div,.recovery-banner>div { flex:1; }
 .error-banner small,.recovery-banner span { display:block;color:var(--muted);font-size:10px; }
@@ -326,4 +346,8 @@ input::placeholder,textarea::placeholder { color:var(--muted); }
 .auth-privacy{margin-top:30px;padding-top:20px;border-top:1px solid var(--line,#333438)}
 .auth-error{color:var(--danger,#e49b9b)!important;margin-top:18px;margin-bottom:0!important}
 .auth-overlay{position:fixed;inset:0;z-index:300;overflow:auto;background:rgba(20,21,22,.94)}
+.workspace-recovery{min-height:100dvh;display:grid;place-items:center;padding:32px 24px;background:var(--paper)}
+.workspace-recovery h1{font-size:24px;font-weight:600}
+.workspace-recovery p{font-size:14px;line-height:1.9;color:var(--muted)}
+.workspace-recovery>div>div{display:flex;flex-wrap:wrap;gap:12px;margin-top:24px}
 @media(max-width:480px){.auth-page{padding:22px 14px}.auth-sheet{padding:28px 24px}.auth-sheet h1{font-size:24px}}
