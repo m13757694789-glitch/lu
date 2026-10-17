@@ -11,9 +11,11 @@
     "build": "node scripts/next.mjs build",
     "start": "node scripts/next.mjs start",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test tests/*.test.ts"
+    "test": "node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1152.0",
+    "@aws-sdk/s3-request-presigner": "^3.1152.0",
     "@blocknote/core": "latest",
     "@blocknote/mantine": "latest",
     "@blocknote/react": "latest",

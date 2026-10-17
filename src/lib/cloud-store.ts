@@ -4,12 +4,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { AppError, courseSchema, lessonSchema, lessonPatchSchema } from "./validation.ts";
 import { mapAttachmentUrls, textOf, type Attachment, type Course, type Lesson, type Library } from "./models.ts";
 
-export type CloudAttachment = Attachment & { part_size: number; ready: boolean };
+export type CloudAttachment = Attachment & { part_size: number; ready: boolean; storage_provider: 'supabase' | 'r2' };
 export type CloudPart = { attachment_id: string; part_no: number; path: string; size: number; sha256: string };
 const courseColumns = 'id,name,color,description,archived,createdAt';
 const lessonColumns = 'id,courseId,title,date,revision,createdAt,updatedAt,visitedAt';
-const fileColumns = 'id,lessonId,name,kind,mime,size,filename,sha256,position,createdAt,part_size,ready';
+const fileColumns = 'id,lessonId,name,kind,mime,size,filename,sha256,position,createdAt,part_size,ready,storage_provider';
 export function databaseError(error: { code?: string; message: string }) {
+  if (error.message.includes("r2_storage_quota_exceeded")) throw new AppError("R2 私有空间已达到网站设置的容量上限。请查看剩余空间或调整容量。", 413);
   if (error.message.includes("storage_quota_exceeded")) throw new AppError("免费私有空间最多保存 1 GB 附件。请先备份并清理不用的附件。", 413);
   if (error.message.includes("upload_incomplete")) throw new AppError("文件还没有完整上传，请重试", 409);
   if (error.code === "23503") throw new AppError("关联的课程或课堂已被删除，请重新打开", 409);

@@ -3,11 +3,12 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { api, downloadText } from "./client";
 import type { Attachment } from "./models";
 import type { TransferObserver } from "./upload-progress";
-import { transferCloudParts } from "./cloud-upload-transfer";
+import { transferCloudParts, type SignedPart } from "./cloud-upload-transfer";
 
-function putPart(url:string,blob:Blob,progress:(loaded:number)=>void) {
+function putPart(url:string,blob:Blob,progress:(loaded:number)=>void,headers?:Record<string,string>) {
   return new Promise<void>((resolve,reject)=>{
-    const xhr=new XMLHttpRequest(); xhr.open('PUT',url);xhr.setRequestHeader('Content-Type',blob.type||'application/octet-stream');xhr.setRequestHeader('cache-control','max-age=0');xhr.setRequestHeader('x-upsert','false');
+    const xhr=new XMLHttpRequest(); xhr.open('PUT',url);xhr.setRequestHeader('Content-Type',blob.type||'application/octet-stream');
+    for(const [name,value] of Object.entries(headers||{'cache-control':'max-age=0','x-upsert':'false'})) xhr.setRequestHeader(name,value);
     xhr.timeout=180000;
     xhr.upload.onprogress=event=>progress(event.loaded);xhr.onerror=()=>reject(new Error('上传中断，请检查网络连接'));xhr.onabort=()=>reject(new Error('上传已取消'));xhr.ontimeout=()=>reject(new Error('这一段上传超时，正在尝试重新连接'));
     xhr.onload=()=>xhr.status>=200&&xhr.status<300?resolve():reject(new Error(`私人存储上传失败（${xhr.status}），请重试`));xhr.send(blob);
@@ -44,7 +45,7 @@ export async function uploadCloud<T>(path:string,file:File,progress:(value:numbe
   let completed=false;
   let hashes:ReturnType<typeof hashForUpload>|undefined;
   try {
-    const sign=(index:number)=>api<{url:string}>(`uploads/${upload.id}/sign`,'POST',{index});
+    const sign=(index:number)=>api<SignedPart>(`uploads/${upload.id}/sign`,'POST',{index});
     hashes=hashForUpload(file,upload.partSize,upload.parts);
     const initialSignatures=await Promise.all(Array.from({length:Math.min(2,upload.parts)},(_,index)=>sign(index)));
     await transferCloudParts(upload,file,hashes,{

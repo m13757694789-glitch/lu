@@ -1,10 +1,10 @@
 import type { TransferObserver, UploadTransfer } from "./upload-progress.ts";
 
 type Plan = { id: string; partSize: number; parts: number; mime: string };
-type SignedPart = { url: string; fallbackUrl?: string };
+export type SignedPart = { url: string; fallbackUrl?: string; headers?: Record<string,string> };
 type Transport = {
   sign: (index: number) => Promise<SignedPart>;
-  put: (url: string, blob: Blob, progress: (loaded: number) => void) => Promise<void>;
+  put: (url: string, blob: Blob, progress: (loaded: number) => void, headers?: Record<string,string>) => Promise<void>;
   verify: (index: number, sha256: string) => Promise<{ sha256: string }>;
   pause?: (attempt: number) => Promise<void>;
 };
@@ -15,7 +15,7 @@ export function storageUploadUrls(signed: SignedPart): SignedPart {
   if (url.protocol !== "https:" || !/^[a-z0-9]+\.supabase\.co$/.test(url.hostname)) return signed;
   const fallbackUrl = url.href;
   url.hostname = url.hostname.replace(".supabase.co", ".storage.supabase.co");
-  return { url: url.href, fallbackUrl };
+  return { ...signed, url: url.href, fallbackUrl };
 }
 
 export async function transferCloudParts(
@@ -64,7 +64,7 @@ export async function transferCloudParts(
           try {
             await transport.put(attempt && signed.fallbackUrl ? signed.fallbackUrl : signed.url, blob, value => {
               loaded[index] = Math.max(loaded[index], Math.min(blob.size, Math.max(0, value))); report();
-            });
+            },signed.headers);
             uploaded = true; break;
           } catch (uploadError) {
             // A lost PUT acknowledgement may still have stored the immutable object.

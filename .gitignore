@@ -56,3 +56,6 @@ Desktop.ini
 artifacts/
 .codex-remote-attachments/
 test-results/
+.tools/
+.audio-compressor/
+压缩录音/

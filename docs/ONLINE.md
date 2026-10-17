@@ -1,6 +1,6 @@
 # ClassNote 线上私人知识库
 
-线上版沿用 Next.js 和原有深色界面，使用 Supabase Auth、PostgreSQL 和私有 Storage。网站保留在 EdgeOne，正式地址由 `CLASSNOTE_ORIGIN` 指定。
+线上版沿用 Next.js 和原有深色界面，使用 Supabase Auth、PostgreSQL，附件支持私有 Supabase Storage 和 Cloudflare R2。网站保留在 EdgeOne，正式地址由 `CLASSNOTE_ORIGIN` 指定。
 
 本机启动器仍使用电脑上的 SQLite 和附件目录，两套资料相互独立。线上版不会自动上传本机数据库或录音。
 
@@ -9,14 +9,43 @@
 1. 创建独立的 Supabase 项目，在 SQL 编辑器执行 `supabase/migrations/001_private_library.sql`。
 2. 在数据库中加入自己的已验证邮箱：`insert into public.cn_owners(email) values ('your-verified-email@example.com');`。
 3. 在 Authentication 创建自己的邮箱密码账号并确认邮箱，关闭公开注册和匿名登录。
-4. 在 EdgeOne 生产环境设置 `.env.example` 列出的五项变量。应用只使用 publishable key，所有数据库和存储请求都保留当前用户身份。不要配置 service_role 或管理员密钥。
+4. 在 EdgeOne 生产环境设置 `.env.example` 中的基础变量。数据库仅使用 publishable key，所有数据库请求保留当前用户身份。不要配置 Supabase service_role 或管理员密钥。
 5. 构建并部署后，在正式网址登录；未登录的课程、笔记和附件接口必须返回 401。不要仅凭登录页出现就认定权限检查已完成。
 
-## 数据与权限
+## 接入 Cloudflare R2
+
+1. 在自己的 Cloudflare 账号开通 R2 Standard。订阅和支付资料由账号所有者在 Cloudflare 页面完成。
+2. 创建私有桶 `classnote-private`，可选亚太位置提示。保持公开访问关闭，不启用 `r2.dev` 或公开自定义域名。
+3. 配置以下桶 CORS，允许正式网站直接上传。其他网址需要单独明确加入，不能使用通配来源。
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://lu.gucanyuexuchen.top"],
+    "AllowedMethods": ["GET", "HEAD", "PUT"],
+    "AllowedHeaders": ["content-type", "cache-control", "if-none-match", "range"],
+    "ExposeHeaders": ["ETag", "Content-Length", "Content-Range", "Accept-Ranges"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+4. 创建仅限该桶的 Object Read & Write 凭据，将 Access Key ID 和 Secret Access Key 直接填入 EdgeOne 生产环境的 `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`。不能写进聊天、Git 或前端变量。
+5. 在 Supabase SQL 编辑器执行 `supabase/migrations/002_r2_attachments.sql`。该脚本为已有附件标记 `supabase`，保留原 ID、内容和文件；新增 R2 的独立容量预留。
+6. 在 EdgeOne 设置 `R2_ACCOUNT_ID`、`R2_BUCKET=classnote-private`、`CLASSNOTE_ATTACHMENT_STORAGE=r2`，再部署此版本。需要先执行迁移，再部署代码，避免查询新字段失败。
+7. 用登录账号实际验证新附件上传、刷新后读取、拖动播放、图片和删除；匿名附件请求应返回 401，R2 未签名链接不可读取。旧 Supabase 附件也要能继续读取。
+
+网站默认将 R2 新附件上传上限设为 **10,000,000,000 字节**，保留中的上传也计入，避免并发上传越过该上限。此上限仅管理本应用的逻辑附件容量，不是 Cloudflare 的账单硬上限；同账号的其他桶、存储操作等另按供应商规则计费。提高上限须由数据库所有者明确调整 `cn_storage_limits`，普通登录客户端无权修改。设置面板分别显示当前存储用量和旧存储保留量。
+
+新上传改用 R2，已有录音保持原存储读取。此步骤不下载、迁移或删除已有录音。R2 配置缺失时明确报错，不自动把新文件传回已满的原存储。
+
+R2 上传签名只对当前所有者、附件、分段、大小和 MIME 有效，15 分钟过期，以覆盖慢网重试，签名强制 `If-None-Match: *` 防止覆盖已校验对象。R2 仍复用分段 SHA-256 校验、完整上传确认和有长度上限的 Range 播放。下载签名 60 秒过期，凭据仅在服务端使用。
+
+## 数据与权限（通用）
 
 `cn_owners` 是数据库所有者维护的允许名单，普通客户端无权修改。每张业务表开启行级权限，要求登录邮箱位于允许名单，且记录的 `owner_id` 等于当前用户。课程、课堂和附件同时使用带所有者的外键，防止跨账号关联。
 
-附件桶 `classnote-private` 不公开。上传地址在登录校验后签发，文件按账号和附件 ID 分目录。每段上传后由服务端流式计算 SHA-256，与浏览器校验结果比较；所有分段齐全后才显示为上传成功。音频以 32 MiB 分段保存，图片作为独立对象保存，均使用持久化对象存储。
+附件桶 `classnote-private` 不公开。上传地址在登录校验后签发，文件按账号和附件 ID 分目录。每段上传后由服务端流式计算 SHA-256，与浏览器校验结果比较；所有分段齐全后才显示为上传成功。音频以 32 MiB 分段保存，图片作为独立对象保存，均使用持久化对象存储。每份附件记录自己的存储供应商，读取和删除按该记录路由。
 
 上传优先使用 Supabase 的[存储直连域名](https://supabase.com/docs/guides/storage/uploads/resumable-uploads)，最多同时处理同一录音的两个分段，上传与云端校验交错进行。不同录音仍按选择顺序逐份添加。浏览器用独立 Worker 按存储分段读取文件，以原生 WebCrypto 计算分段 SHA-256，并增量计算整份文件的 SHA-256；每段哈希就绪即可上传，无须等待整份录音校验完毕。音频每次读取最多 32 MiB，不将整份长录音读入内存。不支持 Worker 时按小块让出界面线程。短暂传输失败会重试当前分段，直连失败时尝试原存储入口；已确认的分段不重复上传，重复校验请求复用已有结果。最终失败仍清理本次上传，手动点击重试会重新上传整份文件，尚不支持刷新或关闭网页后的断点续传。
 

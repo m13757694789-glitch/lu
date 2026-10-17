@@ -5,6 +5,7 @@ import { cloudClient, cloudConfig, requireOwner } from "./cloud-auth.ts";
 import { CloudStore, checked, checkedAll } from "./cloud-store.ts";
 import { beginUpload, signPart, completePart, completeUpload, removeCloudFile, serveCloudFile } from "./cloud-files.ts";
 import type { Attachment } from "./models.ts";
+import { attachmentStorage } from './r2-storage.ts';
 
 const headers={'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','X-Robots-Tag':'noindex, nofollow','Referrer-Policy':'no-referrer'};
 export async function handleCloud(request:Request) {
@@ -33,10 +34,14 @@ export async function handleCloud(request:Request) {
     let result:unknown;
     if(method==='GET'&&resource==='library'&&!id) result=await store.library();
     else if(method==='GET'&&resource==='search'&&!id) result=await store.search((new URL(request.url).searchParams.get('q')||'').slice(0,200));
-    else if(method==='GET'&&resource==='health'&&!id) result={app:'ClassNote',version:'1.1.0',storage:'supabase-private'};
+    else if(method==='GET'&&resource==='health'&&!id) result={app:'ClassNote',version:'1.2.0',storage:attachmentStorage()==='r2'?'r2-private':'supabase-private'};
     else if(method==='GET'&&resource==='usage'&&!id) {
-      const rows=await checkedAll<{size:number}>((start,end)=>client.from('cn_attachments').select('size').order('id').range(start,end));
-      result={used:rows.reduce((sum,row)=>sum+row.size,0),limit:1024**3};
+      const provider=attachmentStorage();
+      const [rows,capacity]=await Promise.all([
+        checkedAll<{size:number;storage_provider:string}>((start,end)=>client.from('cn_attachments').select('size,storage_provider').order('id').range(start,end)),
+        checked<{limit_bytes:number}>(client.from('cn_storage_limits').select('limit_bytes').eq('provider',provider).single()),
+      ]);
+      result={provider,used:rows.filter(row=>row.storage_provider===provider).reduce((sum,row)=>sum+row.size,0),limit:capacity.limit_bytes,legacyUsed:rows.filter(row=>row.storage_provider!==provider).reduce((sum,row)=>sum+row.size,0)};
     }
     else if(method==='GET'&&resource==='lessons'&&id) result=await store.detail(id,new URL(request.url).searchParams.get('prefetch')!=='1');
     else if(method==='POST'&&resource==='lessons'&&id&&action==='visit') result=await store.visit(id);

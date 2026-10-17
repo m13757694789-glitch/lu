@@ -4,6 +4,7 @@ import { AppError } from "./validation.ts";
 import { CloudStore, checked, type CloudAttachment } from "./cloud-store.ts";
 import { cloudConfig } from "./cloud-auth.ts";
 import { byteRange } from "./ranges.ts";
+import { attachmentStorage, privateObjectPath, signR2Upload, r2ObjectUrl, removeR2Objects } from './r2-storage.ts';
 
 const types: Record<string,["audio"|"image",string]>={
   mp3:['audio','audio/mpeg'],m4a:['audio','audio/mp4'],wav:['audio','audio/wav'],ogg:['audio','audio/ogg'],oga:['audio','audio/ogg'],opus:['audio','audio/ogg'],aac:['audio','audio/aac'],flac:['audio','audio/flac'],webm:['audio','audio/webm'],
@@ -18,7 +19,8 @@ export async function beginUpload(store:CloudStore,lessonId:string,input:unknown
   const stale=await checked<{id:string}[]>(store.client.from('cn_attachments').select('id').eq('ready',false).lt('createdAt',new Date(Date.now()-24*3600*1000).toISOString()));
   for(const file of stale) await removeCloudFile(store,file.id,true);
   const id=randomUUID(); const partSize=type[0]==='image'?50*1024**2:32*1024**2;
-  const row=await checked<CloudAttachment>(store.client.rpc('cn_begin_upload',{file_id:id,lesson_id:lessonId,file_name:data.name,file_kind:type[0],file_mime:type[1],file_size:data.size,stored_name:`${id}.${extension}`,chunk_size:partSize}).single());
+  const provider=attachmentStorage();
+  const row=await checked<CloudAttachment>(store.client.rpc(provider==='r2'?'cn_begin_r2_upload':'cn_begin_upload',{file_id:id,lesson_id:lessonId,file_name:data.name,file_kind:type[0],file_mime:type[1],file_size:data.size,stored_name:`${id}.${extension}`,chunk_size:partSize}).single());
   return {id:row.id,partSize:row.part_size,parts:Math.ceil(row.size/row.part_size),mime:row.mime};
 }
 function indexOf(row:CloudAttachment,input:unknown) {
@@ -27,15 +29,18 @@ function indexOf(row:CloudAttachment,input:unknown) {
 }
 export async function signPart(store:CloudStore,id:string,input:unknown) {
   const row=await store.attachment(id,true); if(row.ready) throw new AppError("附件已完成上传",409);
-  const index=indexOf(row,input); const path=`${store.owner}/${id}/${index}`;
+  const index=indexOf(row,input); const path=privateObjectPath(store.owner,id,index);
+  if(row.storage_provider==='r2') return signR2Upload(store.owner,id,index,Math.min(row.part_size,row.size-index*row.part_size),row.mime);
   const {data,error}=await store.client.storage.from(cloudConfig().bucket).createSignedUploadUrl(path);
   if(error||!data) throw new AppError("暂时无法准备私有上传，请稍后重试",503);
-  return {url:data.signedUrl,path,index};
+  return {url:data.signedUrl,path,index,headers:{'cache-control':'max-age=0','x-upsert':'false'}};
 }
 function imageValid(mime:string,head:Buffer) {
   return mime==='image/png'?head.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])):mime==='image/jpeg'?head[0]===255&&head[1]===216&&head[2]===255:mime==='image/webp'?head.toString('ascii',0,4)==='RIFF'&&head.toString('ascii',8,12)==='WEBP':/^GIF8[79]a/.test(head.toString('ascii'));
 }
-async function objectUrl(store:CloudStore,path:string,download?:string) {
+async function objectUrl(store:CloudStore,row:CloudAttachment,index:number,download?:string) {
+  const path=privateObjectPath(store.owner,row.id,index);
+  if(row.storage_provider==='r2') return r2ObjectUrl(store.owner,row.id,index,download);
   const {data,error}=await store.client.storage.from(cloudConfig().bucket).createSignedUrl(path,60,download?{download}:undefined);
   if(error||!data) throw new AppError("无法读取私人附件，请稍后重试",503);
   if(new URL(data.signedUrl).origin!==new URL(cloudConfig().url).origin) throw new AppError("存储地址无效",503);
@@ -48,9 +53,9 @@ export async function completePart(store:CloudStore,id:string,input:unknown) {
   const saved=await checked<{sha256:string}|null>(store.client.from('cn_file_parts').select('sha256').eq('attachment_id',id).eq('part_no',index).maybeSingle());
   if(saved) {if(expectedHash&&saved.sha256!==expectedHash) throw new AppError("上传校验失败，请重新上传原文件",409);return {ok:true,sha256:saved.sha256};}
   if(row.ready) throw new AppError("附件分段不存在",409);
-  const path=`${store.owner}/${id}/${index}`;
+  const path=privateObjectPath(store.owner,id,index);
   const expected=Math.min(row.part_size,row.size-index*row.part_size);
-  const response=await fetch(await objectUrl(store,path),{cache:'no-store',signal:AbortSignal.timeout(110000)});
+  const response=await fetch(await objectUrl(store,row,index),{cache:'no-store',signal:AbortSignal.timeout(110000)});
   if(!response.ok||!response.body) throw new AppError("分段上传尚未完成，请重试",409);
   const reader=response.body.getReader(); const hash=createHash('sha256'); let size=0; let head=Buffer.alloc(0);
   try {
@@ -72,24 +77,27 @@ export async function completeUpload(store:CloudStore,id:string,input:unknown) {
 export async function removeCloudFile(store:CloudStore,id:string,pending=false,removingParent=false) {
   const row=await store.attachment(id,pending);
   if(!removingParent&&row.kind==='image'&&row.ready&&JSON.stringify((await store.lesson(row.lessonId)).content).includes(`/api/files/${id}`)) throw new AppError("图片仍在正文中，请先删除对应图片块");
-  const prefix=`${store.owner}/${id}`;
+  if(row.storage_provider==='r2') await removeR2Objects(store.owner,id);
+  else {
+  const prefix=privateObjectPath(store.owner,id,0).replace(/\/0$/,'');
   const {data,error}=await store.client.storage.from(cloudConfig().bucket).list(prefix,{limit:1000});
   if(error) throw new AppError("无法清理云端附件，请稍后重试",503);
   if(data?.length) {
     const removed=await store.client.storage.from(cloudConfig().bucket).remove(data.map(item=>`${prefix}/${item.name}`));
     if(removed.error) throw new AppError("附件未能删除，请稍后重试",503);
   }
+  }
   await checked(store.client.from('cn_attachments').delete().eq('id',id));
 }
 export async function serveCloudFile(request:Request,store:CloudStore,id:string) {
   const row=await store.attachment(id); const parts=await store.parts(id);
-  if(parts.length!==Math.ceil(row.size/row.part_size)) throw new AppError("附件不完整，请从备份恢复",503);
+  if(parts.length!==Math.ceil(row.size/row.part_size)||parts.some((part,index)=>part.part_no!==index||part.path!==privateObjectPath(store.owner,id,index))) throw new AppError("附件不完整，请从备份恢复",503);
   const headers=new Headers({'Content-Type':row.mime,'Accept-Ranges':'bytes','X-Content-Type-Options':'nosniff','Cache-Control':'private, no-store'});
   headers.set('Content-Disposition',`inline; filename*=UTF-8''${encodeURIComponent(row.name)}`);
   if(request.method==='HEAD'&&!request.headers.has('range')) {headers.set('Content-Length',String(row.size));return new Response(null,{headers});}
   const url=new URL(request.url);
   if((row.kind==='image'&&!url.searchParams.has('raw'))||(url.searchParams.has('download')&&parts.length===1)) {
-    const signed=await objectUrl(store,parts[0].path,url.searchParams.has('download')?row.name:undefined);
+    const signed=await objectUrl(store,row,0,url.searchParams.has('download')?row.name:undefined);
     return new Response(null,{status:307,headers:{Location:signed,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});
   }
   const range=byteRange(request.headers.get('range'),row.size,4*1024**2);
@@ -103,7 +111,7 @@ export async function serveCloudFile(request:Request,store:CloudStore,id:string)
         while(offset<=end) {
           if(!active) {
             const part=parts[Math.floor(offset/row.part_size)]; const localStart=offset-part.part_no*row.part_size; const localEnd=Math.min(part.size-1,end-part.part_no*row.part_size);
-            const response=await fetch(await objectUrl(store,part.path),{headers:{Range:`bytes=${localStart}-${localEnd}`},cache:'no-store',signal:request.signal});
+            const response=await fetch(await objectUrl(store,row,part.part_no),{headers:{Range:`bytes=${localStart}-${localEnd}`},cache:'no-store',signal:request.signal});
             if(response.status!==206||!response.body||response.headers.get('content-range')!==`bytes ${localStart}-${localEnd}/${part.size}`) throw new Error('Private storage range unavailable'); active=response.body.getReader();
           }
           const chunk=await active.read();
