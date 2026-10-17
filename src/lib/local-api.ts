@@ -23,7 +23,8 @@ export async function handleLocal(request: Request) {
     if (method === "GET" && resource === "library" && !id) result = store.library();
     else if (method === "GET" && resource === "health" && !id) result = { app: "ClassNote", version: "1.0.0", storage: "sqlite-local-files", instance: process.env.CLASSNOTE_INSTANCE_ID || "manual" };
     else if (method === "GET" && resource === "backup-check" && !id) { for (const file of store.db.prepare("SELECT id FROM attachments").all()) store.filePath(store.attachment(file.id as string)); result = { ok: true }; }
-    else if (method === "GET" && resource === "lessons" && id) result = store.detail(id, true);
+    else if (method === "GET" && resource === "lessons" && id) result = store.detail(id, new URL(request.url).searchParams.get('prefetch') !== '1');
+    else if (method === "POST" && resource === "lessons" && id && action === 'visit') { const lesson=store.detail(id,true);store.settings({lastLesson:id});result={visitedAt:lesson.visitedAt}; }
     else if ((method === "GET" || method === "HEAD") && resource === "files" && id) return serveFile(request, store, store.attachment(id));
     else if (method === "GET" && resource === "backup" && !id) return exportBackup(store);
     else if (method === "POST" && resource === "restore" && !id) result = await restoreBackup(request, store);

@@ -38,7 +38,8 @@ export async function handleCloud(request:Request) {
       const rows=await checkedAll<{size:number}>((start,end)=>client.from('cn_attachments').select('size').order('id').range(start,end));
       result={used:rows.reduce((sum,row)=>sum+row.size,0),limit:1024**3};
     }
-    else if(method==='GET'&&resource==='lessons'&&id) result=await store.detail(id,true);
+    else if(method==='GET'&&resource==='lessons'&&id) result=await store.detail(id,new URL(request.url).searchParams.get('prefetch')!=='1');
+    else if(method==='POST'&&resource==='lessons'&&id&&action==='visit') result=await store.visit(id);
     else if((method==='GET'||method==='HEAD')&&resource==='files'&&id) return await serveCloudFile(request,store,id);
     else if(method==='POST'&&resource==='courses'&&!id) result=await store.createCourse(await readJson(request));
     else if(method==='POST'&&resource==='lessons'&&!id) result=await store.createLesson(await readJson(request));

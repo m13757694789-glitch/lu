@@ -23,9 +23,10 @@ export default function AudioUploadPanel({ queue, openLesson }: { queue: AudioUp
   const [collapsed, setCollapsed] = useState(false);
   if (!tasks.length) return null;
   const pending = tasks.filter(task => task.status === "queued" || task.status === "uploading").length;
+  const storageFull=tasks.some(task=>task.status==='failed'&&task.error?.includes('免费私有空间'));
   return <section className="audio-upload-panel" aria-label="录音上传任务">
     <div className="upload-panel-heading"><button type="button" aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}><strong>录音上传{pending ? ` · ${pending} 份进行中` : ""}</strong>{collapsed ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</button>{tasks.some(task => task.status === "completed") && <button className="text-button" onClick={() => queue.clearCompleted()}>清除已完成</button>}</div>
-    {!collapsed && <><p className="upload-panel-hint">可切换课堂，请保持本页打开。</p><div className="upload-task-list">{tasks.map(task => <div className={`upload-task ${task.status}`} key={task.id}>
+    {!collapsed && <><p className="upload-panel-hint">可切换课堂，请保持本页打开。</p>{storageFull&&<div className="upload-capacity-message" role="alert">云端剩余空间不足，失败的录音尚未保存到云端。请保留原文件，清理空间或扩容后再重试。<button className="text-button" onClick={()=>window.dispatchEvent(new Event('classnote-open-storage'))}>查看剩余空间</button></div>}<div className="upload-task-list">{tasks.map(task => <div className={`upload-task ${task.status}`} key={task.id}>
       <div className="upload-task-title"><span title={task.name}>{task.name}</span>{task.status === "completed" ? <Check size={15} /> : task.status === "uploading" ? <LoaderCircle size={15} className="spin" /> : null}</div>
       <button className="upload-task-lesson" onClick={() => openLesson(task.lessonId)} title="打开所属课堂">{task.lessonTitle}</button>
       <div className="upload-task-state" role="status">{taskState(task)}</div>

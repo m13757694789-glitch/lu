@@ -1,5 +1,5 @@
 "use client";
-import { forwardRef, useEffect, useImperativeHandle } from "react";
+import { forwardRef, memo, useEffect, useImperativeHandle, useRef } from "react";
 import { BlockNoteSchema, defaultBlockSpecs, type PartialBlock } from "@blocknote/core";
 import { zh } from "@blocknote/core/locales";
 import { createReactBlockSpec, useCreateBlockNote } from "@blocknote/react";
@@ -25,6 +25,7 @@ export type EditorHandle = {
 };
 type Props = { initialContent: unknown[]; readOnly?: boolean; theme: "light" | "dark"; upload?: (file: File) => Promise<string>; onChange?: (content: unknown[], headings: Heading[]) => void; onHeadings?: (headings: Heading[]) => void; onImageOpen?: (url: string) => void };
 const DocumentEditor = forwardRef<EditorHandle, Props>(function DocumentEditor({ initialContent, readOnly = false, theme, upload, onChange, onHeadings, onImageOpen }, ref) {
+  const selectionRestore = useRef(0);
   const editor = useCreateBlockNote({ schema, dictionary: zh, initialContent: initialContent.length ? initialContent as NativeBlock[] : undefined,
     uploadFile: upload,
     pasteHandler: ({ defaultPasteHandler }) => defaultPasteHandler({ prioritizeMarkdownOverHTML: true, plainTextAsMarkdown: true }),
@@ -74,6 +75,14 @@ const DocumentEditor = forwardRef<EditorHandle, Props>(function DocumentEditor({
     },
     insertFormula() { const anchor = editor.getTextCursorPosition().block; editor.insertBlocks([{ type: "math", props: { formula: "M = F \\cdot d" } }], anchor, "after"); },
   }));
-  return <div className="document-editor" onDoubleClick={event => { const element = event.target; if (element instanceof HTMLImageElement) onImageOpen?.(element.src); }} onClick={event => { const element = event.target; if (readOnly && element instanceof HTMLImageElement) onImageOpen?.(element.src); }}><BlockNoteView editor={editor} editable={!readOnly} theme={theme} onChange={() => { const outline = headings(); onChange?.(editor.document, outline); onHeadings?.(outline); }} /></div>;
+  return <div className="document-editor" onKeyDownCapture={event => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || !['a','c'].includes(event.key.toLowerCase())) return;
+    const target=event.target as HTMLElement;if(target.closest('input,textarea,select'))return;
+    const root=event.currentTarget,scroller=root.closest<HTMLElement>('.document-scroll');if(!scroller)return;
+    const top=scroller.scrollTop,left=scroller.scrollLeft,token=++selectionRestore.current;
+    // Preserve native editor/table selection and copy. Only suppress their incidental viewport movement.
+    const restore=()=>{if(selectionRestore.current===token&&root.isConnected&&scroller.isConnected){scroller.scrollTo({top,left,behavior:'instant'});}};
+    queueMicrotask(restore);setTimeout(restore,0);setTimeout(restore,32);
+  }} onDoubleClick={event => { const element = event.target; if (element instanceof HTMLImageElement) onImageOpen?.(element.src); }} onClick={event => { const element = event.target; if (readOnly && element instanceof HTMLImageElement) onImageOpen?.(element.src); }}><BlockNoteView editor={editor} editable={!readOnly} theme={theme} onChange={() => { const outline = headings(); onChange?.(editor.document, outline); onHeadings?.(outline); }} /></div>;
 });
-export default DocumentEditor;
+export default memo(DocumentEditor);

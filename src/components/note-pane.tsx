@@ -1,6 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, useSyncExternalStore } from "react";
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useRef, useState, useSyncExternalStore } from "react";
 import { CalendarDays, Upload, ImagePlus, FileDown, FileInput, Check, LoaderCircle, AlertCircle, Headphones, PenLine, BookOpen, Sigma, X, Download } from "lucide-react";
 import type { EditorHandle, Heading } from "./document-editor";
 import type { Attachment, Lesson, LessonDetail, SaveState } from "@/lib/models";
@@ -11,15 +11,17 @@ import EditorBoundary from "./editor-boundary";
 import { AudioUploadQueue } from "@/lib/audio-upload-queue";
 
 const Editor = dynamic(() => import("./document-editor"), { ssr: false, loading: () => <div className="editor-loading"><LoaderCircle className="spin" size={19} /> 正在打开笔记…</div> });
-export type NoteHandle = { flush: () => Promise<boolean>; importFiles: (files: File[], point?: { x: number; y: number }) => Promise<void> };
+export type NoteHandle = { flush: () => Promise<boolean>; hasUnsaved:()=>boolean; getRevision:()=>number; importFiles: (files: File[], point?: { x: number; y: number }) => Promise<void> };
 type Draft = { title: string; date: string; content: unknown[]; revision: number; time: string };
-type Props = { lesson: LessonDetail; courseName: string; cloud?: boolean; theme: "light" | "dark"; audioUploads: AudioUploadQueue; onSaved: (lesson: Lesson) => void; onHeadings: (headings: Heading[]) => void; onState: (state: SaveState) => void; notify: (text: string) => void };
+type Props = { lesson: LessonDetail; courseName: string; cloud?: boolean; theme: "light" | "dark"; audioUploads: AudioUploadQueue; onSaved: (lesson: Lesson) => void; onAttachments?:(id:string,files:Attachment[])=>void; onHeadings: (headings: Heading[]) => void; onState: (state: SaveState) => void; notify: (text: string) => void };
 
-const NotePane = forwardRef<NoteHandle, Props>(function NotePane({ lesson, courseName, cloud=false, theme, audioUploads, onSaved, onHeadings, onState, notify }, ref) {
+const NotePane = forwardRef<NoteHandle, Props>(function NotePane({ lesson, courseName, cloud=false, theme, audioUploads, onSaved, onAttachments, onHeadings, onState, notify }, ref) {
   const [title, setTitle] = useState(lesson.title); const [date, setDate] = useState(lesson.date); const [readOnly, setReadOnly] = useState(false); const [state, setState] = useState<SaveState>("saved"); const [saveError, setSaveError] = useState("");
   const [attachments, setAttachments] = useState(lesson.attachments); const [progress, setProgress] = useState<{ name: string; value: number } | null>(null); const uploading = useRef(0); const [lightbox, setLightbox] = useState("");
   const [draggingFiles, setDraggingFiles] = useState(false); const dragDepth = useRef(0);
   const removedAudio = useRef(new Set<string>());
+  useEffect(()=>{setAttachments(lesson.attachments.filter(file=>!removedAudio.current.has(file.id)&&!audioUploads.removedReplacementIds().has(file.id)));},[lesson.attachments,audioUploads]);
+  useEffect(()=>{onAttachments?.(lesson.id,attachments);},[attachments,lesson.id,onAttachments]);
   const completedUploads = useSyncExternalStore(audioUploads.subscribe, () => audioUploads.completionVersion(lesson.id), () => 0);
   useEffect(() => {
     if (!completedUploads) return; let active = true;
@@ -55,18 +57,20 @@ const NotePane = forwardRef<NoteHandle, Props>(function NotePane({ lesson, cours
     const ok = await running.current; return ok && sequence.current !== savedSequence.current ? flushRef.current() : ok;
   }, [lesson.id, status, onSaved]);
   flushRef.current = flush;
-  useImperativeHandle(ref, () => ({ flush, importFiles }));
-  const change = (patch: Partial<typeof pending.current>) => {
+  useImperativeHandle(ref, () => ({ flush, hasUnsaved:()=>sequence.current!==savedSequence.current||!!running.current||uploading.current>0||!!recovery, getRevision:()=>revision.current, importFiles }));
+  const change = useCallback((patch: Partial<typeof pending.current>) => {
     pending.current = { ...pending.current, ...patch }; sequence.current++; status("dirty");
     try { localStorage.setItem(draftKey, JSON.stringify({ ...pending.current, revision: revision.current, time: new Date().toISOString() })); } catch { notify("浏览器草稿副本无法写入，请保持页面打开，等待保存完成"); }
     if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => { void flushRef.current(); }, 750);
-  };
-  const upload = async (file: File) => {
+  },[draftKey,notify,status]);
+  const upload = useCallback(async (file: File) => {
     uploading.current++; setProgress({ name: file.name, value: 0 });
     try { const result = await uploadFile(`lessons/${lesson.id}/attachments`, file, value => setProgress({ name: file.name, value })); setAttachments(old => [...old, result]); return result; }
     catch (error) { notify((error as Error).message); throw error; }
     finally { uploading.current--; if (!uploading.current) { setProgress(null); if (sequence.current !== savedSequence.current) { if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => { void flushRef.current(); }, 100); } } }
-  };
+  },[lesson.id,notify]);
+  const uploadImage=useCallback(async(file:File)=>`/api/files/${(await upload(file)).id}`,[upload]);
+  const editorChanged=useCallback((content:unknown[])=>change({content}),[change]);
   const enqueueAudio = (files: File[], replacementId?: string) => {
     for (const file of files) audioUploads.enqueue({ lessonId: lesson.id, lessonTitle: title, courseId: lesson.courseId }, file, files.length === 1 ? replacementId : undefined);
   };
@@ -107,7 +111,7 @@ const NotePane = forwardRef<NoteHandle, Props>(function NotePane({ lesson, cours
       <div className="document-tools"><button className="tool-button" onClick={() => { replacement.current = null; audioInput.current?.click(); }}><Upload size={15} />上传录音</button>{!readOnly && <><button className="tool-button" onClick={() => imageInput.current?.click()}><ImagePlus size={15} />插入图片</button><button className="tool-button" onClick={() => { setPreview(null); setImportOpen(true); }}><FileInput size={15} />导入笔记</button><button className="tool-button formula-tool" onClick={() => editor.current?.insertFormula()}><Sigma size={15} />公式</button></>}<button className="tool-button export-tool" onClick={async () => { try { const text = await editor.current?.markdown(); if (text !== undefined) downloadText(`${title}.md`, `# ${title}\n\n${date} · ${courseName}\n\n${text}`); } catch { notify("导出失败，请重试"); } }}><FileDown size={15} /><span>导出</span></button></div>
       {progress && <div className="upload-progress" role="status"><LoaderCircle size={15} className="spin" /><span>{progress.name}</span><progress max="100" value={progress.value} /><b>{progress.value === 99 ? "正在保存文件…" : `${progress.value}%`}</b></div>}
       {audioFiles.length ? <AudioPlayer files={audioFiles} onChange={files => { const kept=new Set(files.map(file=>file.id));for(const file of attachments)if(file.kind==="audio"&&!kept.has(file.id))removedAudio.current.add(file.id);setAttachments(old => [...old.filter(file => file.kind !== "audio"), ...files]); }} onReplace={file => { replacement.current = file; audioInput.current?.click(); }} notify={notify} /> : <button className="audio-empty" onClick={() => { replacement.current = null; audioInput.current?.click(); }}><span className="audio-empty-icon"><Headphones size={22} /></span><span><strong>把这一节课，留下来</strong><small>添加课堂录音，随时回听与复习</small></span><span className="audio-upload-label"><Upload size={14} />添加录音</span></button>}
-      <div className="note-body"><EditorBoundary content={pending.current.content} title={title}><Editor ref={editor} initialContent={lesson.content} readOnly={readOnly} theme={theme} upload={async file => `/api/files/${(await upload(file)).id}`} onChange={content => change({ content })} onHeadings={onHeadings} onImageOpen={setLightbox} /></EditorBoundary></div>
+      <div className="note-body"><EditorBoundary content={pending.current.content} title={title}><Editor ref={editor} initialContent={lesson.content} readOnly={readOnly} theme={theme} upload={uploadImage} onChange={editorChanged} onHeadings={onHeadings} onImageOpen={setLightbox} /></EditorBoundary></div>
       {!readOnly && <div className="document-hint">输入 / 插入内容 <span>·</span> 拖动左侧手柄调整段落与图片顺序 <span>·</span> 双击图片放大</div>}
       <div className="document-end"><span />ClassNote<span /></div>
     </article>
@@ -122,4 +126,4 @@ const NotePane = forwardRef<NoteHandle, Props>(function NotePane({ lesson, cours
     <Modal open={!!lightbox} onOpenChange={() => setLightbox("")} title="课堂图片" wide><div className="lightbox">{lightbox && <img src={lightbox} alt="课堂笔记图片放大查看" />}</div></Modal>
   </>;
 });
-export default NotePane;
+export default memo(NotePane);

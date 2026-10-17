@@ -48,25 +48,26 @@ export class CloudStore {
   }
   async parts(id: string) { return checked<CloudPart[]>(this.client.from('cn_file_parts').select('attachment_id,part_no,path,size,sha256').eq('attachment_id',id).order('part_no')); }
   async library(): Promise<Library> {
-    const courses: Course[] = []; const lessons: Lesson[] = [];
-    for (let offset=0;;offset+=1000) {
-      const rows=await checked<Course[]>(this.client.from('cn_courses').select(courseColumns).order('createdAt').range(offset,offset+999));
-      courses.push(...rows); if(rows.length<1000) break;
-    }
-    for (let offset=0;;offset+=1000) {
-      const rows=await checked<Omit<Lesson,'content'>[]>(this.client.from('cn_lessons').select(lessonColumns).order('date',{ascending:false}).order('createdAt',{ascending:false}).range(offset,offset+999));
-      lessons.push(...rows.map(row=>({...row,content:[]}))); if(rows.length<1000) break;
-    }
-    const setting = await checked<{value:Record<string,unknown>}|null>(this.client.from('cn_settings').select('value').eq('owner_id',this.owner).maybeSingle());
-    return {courses,lessons,settings:setting?.value||{}};
+    const [courses,rows,setting]=await Promise.all([
+      checkedAll<Course>((start,end)=>this.client.from('cn_courses').select(courseColumns).order('createdAt').range(start,end)),
+      checkedAll<Omit<Lesson,'content'>>((start,end)=>this.client.from('cn_lessons').select(lessonColumns).order('date',{ascending:false}).order('createdAt',{ascending:false}).range(start,end)),
+      checked<{value:Record<string,unknown>}|null>(this.client.from('cn_settings').select('value').eq('owner_id',this.owner).maybeSingle()),
+    ]);
+    return {courses,lessons:rows.map(row=>({...row,content:[]})),settings:setting?.value||{}};
   }
   async search(query: string) {
     return checked<string[]>(this.client.rpc('cn_search_lessons',{needle:query}));
   }
   async detail(id: string, visit = false) {
-    if (visit) await checked(this.client.from('cn_lessons').update({visitedAt:new Date().toISOString()}).eq('id',id));
-    const [lesson,attachments] = await Promise.all([this.lesson(id),checkedAll<Attachment>((start,end)=>this.client.from('cn_attachments').select(fileColumns).eq('lessonId',id).eq('ready',true).order('createdAt').order('id').range(start,end))]);
-    return {...lesson,attachments};
+    const visitedAt=new Date().toISOString();
+    const [lesson,attachments] = await Promise.all([this.lesson(id),checkedAll<Attachment>((start,end)=>this.client.from('cn_attachments').select(fileColumns).eq('lessonId',id).eq('ready',true).order('createdAt').order('id').range(start,end)),visit?checked(this.client.from('cn_lessons').update({visitedAt}).eq('id',id)):Promise.resolve()]);
+    return {...lesson,visitedAt:visit?visitedAt:lesson.visitedAt,attachments};
+  }
+  async visit(id:string) {
+    const visitedAt=new Date().toISOString();
+    const row=await checked<{id:string}|null>(this.client.from('cn_lessons').update({visitedAt}).eq('id',id).select('id').maybeSingle());
+    if(!row)throw new AppError('课堂记录不存在',404);
+    await this.settings({lastLesson:id});return {visitedAt};
   }
   async createCourse(input: unknown) {
     const data=courseSchema.parse(input);
