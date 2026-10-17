@@ -2,34 +2,47 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { api, downloadText } from "./client";
 import type { Attachment } from "./models";
+import type { UploadHashes } from "./upload-hash";
+import type { TransferObserver } from "./upload-progress";
+import { transferCloudParts } from "./cloud-upload-transfer";
 
 function putPart(url:string,blob:Blob,progress:(loaded:number)=>void) {
   return new Promise<void>((resolve,reject)=>{
     const xhr=new XMLHttpRequest(); xhr.open('PUT',url);xhr.setRequestHeader('Content-Type',blob.type||'application/octet-stream');xhr.setRequestHeader('cache-control','max-age=0');xhr.setRequestHeader('x-upsert','false');
-    xhr.upload.onprogress=event=>progress(event.loaded);xhr.onerror=()=>reject(new Error('上传中断，请检查网络连接'));xhr.onabort=()=>reject(new Error('上传已取消'));
+    xhr.timeout=180000;
+    xhr.upload.onprogress=event=>progress(event.loaded);xhr.onerror=()=>reject(new Error('上传中断，请检查网络连接'));xhr.onabort=()=>reject(new Error('上传已取消'));xhr.ontimeout=()=>reject(new Error('这一段上传超时，正在尝试重新连接'));
     xhr.onload=()=>xhr.status>=200&&xhr.status<300?resolve():reject(new Error(`私人存储上传失败（${xhr.status}），请重试`));xhr.send(blob);
   });
 }
-export async function uploadCloud<T>(path:string,file:File,progress:(value:number)=>void):Promise<T> {
+async function hashForUpload(file:File,partSize:number):Promise<UploadHashes> {
+  if(typeof Worker==='undefined') return (await import('./upload-hash')).hashUploadFile(file,partSize,true);
+  return new Promise((resolve,reject)=>{
+    const worker=new Worker(new URL('./upload-hash.worker.ts',import.meta.url));
+    worker.onmessage=(event:MessageEvent<{hashes?:UploadHashes;error?:string}>)=>{
+      worker.terminate();if(event.data.hashes)resolve(event.data.hashes);else reject(new Error(event.data.error||'无法读取原文件，请重新选择文件'));
+    };
+    worker.onerror=event=>{event.preventDefault();worker.terminate();import('./upload-hash').then(module=>module.hashUploadFile(file,partSize,true)).then(resolve,reject);};
+    worker.postMessage({file,partSize});
+  });
+}
+export async function uploadCloud<T>(path:string,file:File,progress:(value:number)=>void,observe?:TransferObserver):Promise<T> {
   if(path==='restore') return (await import('./cloud-backup-client')).restoreCloud(file,progress) as Promise<T>;
+  observe?.({stage:'preparing',loaded:0,total:file.size});
   const upload=await api<{id:string;partSize:number;parts:number;mime:string}>(path,'POST',{name:file.name,size:file.size});
-  const fullHash=sha256.create(); let completed=false;
+  let completed=false;
   try {
-    for(let index=0;index<upload.parts;index++) {
-      const start=index*upload.partSize; const blob=file.slice(start,Math.min(file.size,start+upload.partSize),upload.mime);
-      const hash=sha256.create(); const reader=blob.stream().getReader(); let sinceYield=0;
-      while(true) {const part=await reader.read();if(part.done) break;hash.update(part.value);fullHash.update(part.value);sinceYield+=part.value.length;if(sinceYield>=4*1024**2){sinceYield=0;await new Promise(resolve=>setTimeout(resolve,0));}}
-      const expected=bytesToHex(hash.digest());
-      const signed=await api<{url:string}>(`uploads/${upload.id}/sign`,'POST',{index});
-      try {await putPart(signed.url,blob,loaded=>progress(Math.min(98,Math.round((start+Math.min(loaded,blob.size))/file.size*98))));}
-      catch(error) { // A lost acknowledgement can still mean that the object arrived.
-        const verified=await api<{sha256:string}>(`uploads/${upload.id}/part`,'POST',{index}).catch(()=>null);
-        if(verified?.sha256!==expected) throw error;
-      }
-      const verified=await api<{sha256:string}>(`uploads/${upload.id}/part`,'POST',{index});
-      if(verified.sha256!==expected) throw new Error('上传校验失败，请重新上传原文件');
-    }
-    progress(99);const row=await api<T>(`uploads/${upload.id}/complete`,'POST',{sha256:bytesToHex(fullHash.digest())});completed=true;progress(100);return row;
+    const sign=(index:number)=>api<{url:string}>(`uploads/${upload.id}/sign`,'POST',{index});
+    const [hashes,initialSignatures]=await Promise.all([
+      hashForUpload(file,upload.partSize),
+      Promise.all(Array.from({length:Math.min(2,upload.parts)},(_,index)=>sign(index))),
+    ]);
+    await transferCloudParts(upload,file,hashes,{
+      sign:index=>index<initialSignatures.length?Promise.resolve(initialSignatures[index]):sign(index),
+      put:putPart,
+      verify:(index,sha256)=>api<{sha256:string}>(`uploads/${upload.id}/part`,'POST',{index,sha256}),
+    },progress,observe);
+    observe?.({stage:'saving',loaded:file.size,total:file.size});
+    progress(99);const row=await api<T>(`uploads/${upload.id}/complete`,'POST',{sha256:hashes.sha256});completed=true;progress(100);return row;
   } finally {if(!completed) await api(`uploads/${upload.id}`,'DELETE').catch(()=>{});}
 }
 

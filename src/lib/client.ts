@@ -1,4 +1,5 @@
 import type { Attachment } from "./models";
+import type { TransferObserver } from "./upload-progress";
 let mode: "local" | "cloud" = "local";
 export function setClientMode(value: "local" | "cloud") { mode = value; }
 export function clientIsCloud() { return mode === "cloud"; }
@@ -10,12 +11,13 @@ export async function api<T>(path: string, method = "GET", data?: unknown): Prom
   if (result === null || result === undefined) throw new Error("服务返回了空响应，请刷新后重试");
   return result as T;
 }
-export function uploadFile<T = Attachment>(path: string, file: File, progress: (value: number) => void): Promise<T> {
-  if (mode === "cloud") return import("./cloud-client").then(module => module.uploadCloud<T>(path, file, progress));
+export function uploadFile<T = Attachment>(path: string, file: File, progress: (value: number) => void, observe?: TransferObserver): Promise<T> {
+  if (mode === "cloud") return import("./cloud-client").then(module => module.uploadCloud<T>(path, file, progress, observe));
+  observe?.({ stage: "uploading", loaded: 0, total: file.size });
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest(); xhr.open("POST", `/api/${path}`);
     xhr.setRequestHeader("Content-Type", "application/octet-stream"); xhr.setRequestHeader("x-file-name", encodeURIComponent(file.name)); xhr.setRequestHeader("x-file-size", String(file.size));
-    xhr.upload.onprogress = event => { if (event.lengthComputable) progress(Math.min(99, Math.round(event.loaded / event.total * 100))); };
+    xhr.upload.onprogress = event => { if (event.lengthComputable) { progress(Math.min(99, Math.round(event.loaded / event.total * 100))); observe?.({ stage: "uploading", loaded: Math.min(file.size,event.loaded), total: file.size }); } };
     xhr.onerror = () => reject(new Error("上传中断，请检查本机服务是否运行")); xhr.onabort = () => reject(new Error("上传已取消"));
     xhr.onload = () => { try { const result = JSON.parse(xhr.responseText); if (xhr.status >= 200 && xhr.status < 300) { progress(100); resolve(result); } else reject(new Error(result.error || "上传失败")); } catch { reject(new Error("上传返回了无效响应")); } };
     xhr.send(file);

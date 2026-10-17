@@ -43,7 +43,11 @@ async function objectUrl(store:CloudStore,path:string,download?:string) {
 }
 export async function completePart(store:CloudStore,id:string,input:unknown) {
   const row=await store.attachment(id,true); const index=indexOf(row,input);
-  if(row.ready) return {ok:true};
+  const expectedHash=z.object({sha256:z.string().regex(/^[\da-f]{64}$/).optional()}).parse(input).sha256;
+  // Objects cannot be overwritten by storage policy. Reusing verified metadata makes lost responses cheap to retry.
+  const saved=await checked<{sha256:string}|null>(store.client.from('cn_file_parts').select('sha256').eq('attachment_id',id).eq('part_no',index).maybeSingle());
+  if(saved) {if(expectedHash&&saved.sha256!==expectedHash) throw new AppError("上传校验失败，请重新上传原文件",409);return {ok:true,sha256:saved.sha256};}
+  if(row.ready) throw new AppError("附件分段不存在",409);
   const path=`${store.owner}/${id}/${index}`;
   const expected=Math.min(row.part_size,row.size-index*row.part_size);
   const response=await fetch(await objectUrl(store,path),{cache:'no-store',signal:AbortSignal.timeout(110000)});
@@ -57,6 +61,7 @@ export async function completePart(store:CloudStore,id:string,input:unknown) {
   if(size!==expected) throw new AppError("文件传输不完整，请重试");
   if(row.kind==='image'&&!imageValid(row.mime,head)) throw new AppError("文件内容与图片格式不符");
   const digest=hash.digest('hex');
+  if(expectedHash&&digest!==expectedHash) throw new AppError("上传校验失败，请重新上传原文件",409);
   await checked(store.client.from('cn_file_parts').upsert({attachment_id:id,part_no:index,path,size,sha256:digest},{onConflict:'attachment_id,part_no'}));
   return {ok:true,sha256:digest};
 }

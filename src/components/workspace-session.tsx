@@ -18,7 +18,7 @@ class WorkspaceBoundary extends Component<{ children: ReactNode; retry: () => vo
 
 export default function WorkspaceSession(props: { cloud: boolean; email?: string; onLogout: () => void }) {
   const [audioUploads] = useState(() => new AudioUploadQueue(
-    (lessonId, file, progress) => uploadFile(`lessons/${lessonId}/attachments`, file, progress),
+    (lessonId, file, progress, observe) => uploadFile(`lessons/${lessonId}/attachments`, file, progress, observe),
     async id => { await api(`files/${id}`, "DELETE"); },
   ));
   const [epoch, setEpoch] = useState(0);

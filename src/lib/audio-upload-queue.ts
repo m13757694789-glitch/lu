@@ -1,12 +1,13 @@
 import type { Attachment } from "./models.ts";
+import type { TransferObserver, UploadTransfer } from "./upload-progress.ts";
 
 export type UploadTarget = { lessonId: string; lessonTitle: string; courseId: string };
 export type AudioUploadTask = UploadTarget & {
   id: string; name: string; status: "queued" | "uploading" | "completed" | "failed";
-  progress: number; error?: string; warning?: string; replacementId?: string;
+  progress: number; error?: string; warning?: string; replacementId?: string; transfer?: UploadTransfer;
 };
 type Entry = AudioUploadTask & { file?: File };
-type Transport = (lessonId: string, file: File, progress: (value: number) => void) => Promise<Attachment>;
+type Transport = (lessonId: string, file: File, progress: (value: number) => void, observe: TransferObserver) => Promise<Attachment>;
 const emptyTasks: readonly AudioUploadTask[] = [];
 
 // Owned by the workspace, not an individual note. File objects never go into React or localStorage.
@@ -39,7 +40,7 @@ export class AudioUploadQueue {
   retry(id: string) {
     const task = this.entries.find(task => task.id === id);
     if (!task || task.status !== "failed" || !task.file) return;
-    task.status = "queued"; task.progress = 0; task.error = undefined;
+    task.status = "queued"; task.progress = 0; task.error = undefined; task.transfer = undefined;
     this.emit(); void this.drain();
   }
   dismiss(id: string) { this.entries = this.entries.filter(task => task.id !== id || task.status === "queued" || task.status === "uploading"); this.emit(); }
@@ -53,7 +54,7 @@ export class AudioUploadQueue {
         try {
           await this.transport(current.lessonId, current.file!, value => {
             current.progress = Math.max(current.progress, Math.min(99, Math.max(0, Math.round(value)))); this.emit();
-          });
+          }, transfer => { current.transfer = transfer; this.emit(); });
           // Replacing must never delete the old recording before the new one is durable.
           if (current.replacementId && this.removeReplacement) {
             try { await this.removeReplacement(current.replacementId); this.removedReplacements.add(current.replacementId); }
