@@ -1,4 +1,3 @@
-import type { UploadHashes } from "./upload-hash.ts";
 import type { TransferObserver, UploadTransfer } from "./upload-progress.ts";
 
 type Plan = { id: string; partSize: number; parts: number; mime: string };
@@ -20,7 +19,7 @@ export function storageUploadUrls(signed: SignedPart): SignedPart {
 }
 
 export async function transferCloudParts(
-  plan: Plan, file: Blob, hashes: UploadHashes, transport: Transport,
+  plan: Plan, file: Blob, hashes: {parts: readonly (string | Promise<string>)[]}, transport: Transport,
   progress: (value: number) => void, observe?: TransferObserver,
 ) {
   const loaded = Array<number>(plan.parts).fill(0);
@@ -37,13 +36,13 @@ export async function transferCloudParts(
     observe?.({ stage, loaded: bytes, total: file.size, bytesPerSecond: stage === "uploading" ? speed : undefined });
   };
   const pause = transport.pause || (attempt => new Promise(resolve => setTimeout(resolve, attempt * 1000)));
-  const verify = async (index: number) => {
+  const verify = async (index: number, expected: string) => {
     states[index] = "verifying"; report(true);
     let error: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const part = await transport.verify(index, hashes.parts[index]);
-        if (part.sha256 !== hashes.parts[index]) throw new Error("上传校验失败，请重新上传原文件");
+        const part = await transport.verify(index, expected);
+        if (part.sha256 !== expected) throw new Error("上传校验失败，请重新上传原文件");
         return;
       } catch (caught) {
         if(caught instanceof Error && caught.message.includes("校验失败")) throw caught;
@@ -56,6 +55,7 @@ export async function transferCloudParts(
     while (!failed && next < plan.parts) {
       const index = next++;
       try {
+        const expected=await hashes.parts[index];
         const blob = file.slice(index * plan.partSize, Math.min(file.size, (index + 1) * plan.partSize), plan.mime);
         const signed = storageUploadUrls(await transport.sign(index));
         let uploaded = false;
@@ -69,15 +69,15 @@ export async function transferCloudParts(
           } catch (uploadError) {
             // A lost PUT acknowledgement may still have stored the immutable object.
             try {
-              const part = await transport.verify(index, hashes.parts[index]);
-              if (part.sha256 === hashes.parts[index]) { loaded[index] = blob.size; uploaded = false; break; }
+              const part = await transport.verify(index, expected);
+              if (part.sha256 === expected) { loaded[index] = blob.size; uploaded = false; break; }
             } catch {}
             if (attempt === 2) throw uploadError;
             states[index] = "retrying"; report(true); await pause(attempt + 1);
           }
         }
         loaded[index] = blob.size;
-        if (uploaded) await verify(index);
+        if (uploaded) await verify(index,expected);
         states[index] = "saving"; report(true);
       } catch (error) { failed = true; failure ??= error; }
     }

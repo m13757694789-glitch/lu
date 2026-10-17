@@ -52,6 +52,14 @@ test('lost PUT acknowledgement verifies once and never uploads a confirmed segme
   assert.equal(puts,1);assert.equal(verifies,1);
 });
 
+test('ready segments start transferring while later segment hashes are still pending',async()=>{
+  let releaseSecond!:(value:string)=>void,releaseThird!:(value:string)=>void,startedFirst!:()=>void;
+  const first=new Promise<void>(resolve=>{startedFirst=resolve;});const sent:number[]=[];
+  const pending={parts:[Promise.resolve('aa'),new Promise<string>(resolve=>{releaseSecond=resolve;}),new Promise<string>(resolve=>{releaseThird=resolve;})]};
+  const work=transferCloudParts(plan,file,pending,{sign,pause,put:async url=>{const index=Number(new URL(url).pathname.slice(1));sent.push(index);if(index===0)startedFirst();},verify:async(_,sha256)=>({sha256})},()=>{});
+  await first;assert.deepEqual(sent,[0]);releaseSecond('bb');releaseThird('cc');await work;assert.deepEqual(sent.sort(),[0,1,2]);
+});
+
 test('a missing segment retries through the original hostname without restarting its neighbors',async()=>{
   const counts=[0,0,0];const hosts:string[]=[];
   await transferCloudParts(plan,file,hashes,{
