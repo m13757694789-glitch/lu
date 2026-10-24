@@ -18,7 +18,9 @@
     "@aws-sdk/s3-request-presigner": "^3.1152.0",
     "@blocknote/core": "latest",
     "@blocknote/mantine": "latest",
+    "@blocknote/math-block": "0.55.0",
     "@blocknote/react": "latest",
+    "@handlewithcare/prosemirror-inputrules": "0.1.4",
     "@mantine/core": "^8.3.11",
     "@mantine/hooks": "^8.3.11",
     "@mantine/utils": "^6.0.22",
@@ -27,14 +29,19 @@
     "@supabase/supabase-js": "^2.117.3",
     "archiver": "^7.0.1",
     "fflate": "^0.8.3",
-    "katex": "latest",
+    "katex": "0.19.0",
     "lucide-react": "latest",
-    "next": "latest",
+    "next": "16.4.3",
     "radix-ui": "latest",
     "react": "latest",
     "react-dom": "latest",
     "yauzl": "latest",
     "zod": "latest"
+  },
+  "overrides": {
+    "@blocknote/math-block": {
+      "katex": "$katex"
+    }
   },
   "devDependencies": {
     "@tailwindcss/postcss": "latest",

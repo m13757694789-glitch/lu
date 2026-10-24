@@ -8,7 +8,7 @@ export const courseSchema = z.object({ name: z.string().trim().min(1).max(100), 
 export const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => { const date = new Date(value + "T12:00:00Z"); return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value; }, "日期无效");
 export const lessonSchema = z.object({ courseId: idSchema, title: z.string().trim().min(1).max(200), date: dateSchema });
 export const contentSchema = z.array(z.object({ id: z.string().min(1), type: z.string().min(1), props: z.record(z.string(), z.unknown()).optional(), content: z.unknown().optional(), children: z.array(z.unknown()).optional() }).passthrough()).max(50000).superRefine((blocks, context) => {
-  const allowed = new Set(["audio", "bulletListItem", "checkListItem", "codeBlock", "divider", "file", "heading", "image", "numberedListItem", "paragraph", "quote", "table", "toggleListItem", "video", "math"]);
+  const allowed = new Set(["audio", "bulletListItem", "checkListItem", "codeBlock", "divider", "file", "heading", "image", "numberedListItem", "paragraph", "quote", "table", "toggleListItem", "video", "math", "mathBlock"]);
   const ids = new Set<string>(); let count = 0;
   const walk = (items: unknown[], depth: number): boolean => {
     if (depth > 32) return false;

@@ -1,17 +1,18 @@
 "use client";
 import { forwardRef, memo, useEffect, useImperativeHandle, useRef } from "react";
-import { BlockNoteSchema, defaultBlockSpecs, type PartialBlock } from "@blocknote/core";
+import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, type PartialBlock } from "@blocknote/core";
+import { filterSuggestionItems } from '@blocknote/core/extensions';
 import { zh } from "@blocknote/core/locales";
-import { createReactBlockSpec, useCreateBlockNote } from "@blocknote/react";
+import { createReactBlockSpec, getDefaultReactSlashMenuItems, SuggestionMenuController, useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
-import katex from "katex";
+import { getMathSlashMenuItems, locales as mathLocales } from '@blocknote/math-block';
+import { inlineMathSpec,mathBlockSpec } from './math-specs';
 import { textOf } from "@/lib/models";
+import { extractMath, normalizeMathBlocks, parseMathMarkdown } from '@/lib/math-markdown';
+import { mathInputRules } from '@/lib/math-input-rules';
 
-const MathBlock = createReactBlockSpec({ type: "math", propSchema: { formula: { default: "" } }, content: "none" }, {
-  render: ({ block, editor }) => <div className="formula-block"><div dangerouslySetInnerHTML={{ __html: katex.renderToString(block.props.formula || "\\text{在下方输入 LaTeX 公式}", { displayMode: true, throwOnError: false, trust: false }) }} />{editor.isEditable && <textarea aria-label="LaTeX公式" placeholder="例如 M = F \\cdot d" value={block.props.formula} onChange={event => editor.updateBlock(block, { props: { formula: event.target.value } })} />}</div>,
-});
 const DividerBlock = createReactBlockSpec({ type: "divider", propSchema: {}, content: "none" }, { render: () => <hr className="document-divider" /> });
-const schema = BlockNoteSchema.create({ blockSpecs: { ...defaultBlockSpecs, math: MathBlock(), divider: DividerBlock() } });
+const schema = BlockNoteSchema.create({ blockSpecs: { ...defaultBlockSpecs, mathBlock: mathBlockSpec, divider: DividerBlock() }, inlineContentSpecs:{...defaultInlineContentSpecs,math:inlineMathSpec} });
 type NativeBlock = PartialBlock<typeof schema.blockSchema, typeof schema.inlineContentSchema, typeof schema.styleSchema>;
 export type Heading = { id: string; text: string; level: number };
 export type EditorHandle = {
@@ -26,9 +27,17 @@ export type EditorHandle = {
 type Props = { initialContent: unknown[]; readOnly?: boolean; theme: "light" | "dark"; upload?: (file: File) => Promise<string>; onChange?: (content: unknown[], headings: Heading[]) => void; onHeadings?: (headings: Heading[]) => void; onImageOpen?: (url: string) => void };
 const DocumentEditor = forwardRef<EditorHandle, Props>(function DocumentEditor({ initialContent, readOnly = false, theme, upload, onChange, onHeadings, onImageOpen }, ref) {
   const selectionRestore = useRef(0);
-  const editor = useCreateBlockNote({ schema, dictionary: zh, initialContent: initialContent.length ? initialContent as NativeBlock[] : undefined,
+  const editor = useCreateBlockNote({ schema, extensions:[mathInputRules], dictionary: {...zh,math:mathLocales.zh}, initialContent: initialContent.length ? normalizeMathBlocks(initialContent) as NativeBlock[] : undefined,
     uploadFile: upload,
-    pasteHandler: ({ defaultPasteHandler }) => defaultPasteHandler({ prioritizeMarkdownOverHTML: true, plainTextAsMarkdown: true }),
+    pasteHandler: ({event,editor,defaultPasteHandler}) => {
+      const text=event.clipboardData?.getData('text/plain')||event.clipboardData?.getData('text/markdown')||'';
+      const inSource=editor.transact(tr=>!!tr.selection.$from.parent.type.spec.code);
+      if(!inSource&&!event.clipboardData?.types.includes('blocknote/html')&&extractMath(text).formulas.length){
+        const blocks=parseMathMarkdown(text,source=>editor.tryParseMarkdownToBlocks(source));
+        editor.pasteHTML(editor.blocksToFullHTML(blocks as NativeBlock[]),true);return true;
+      }
+      return defaultPasteHandler({prioritizeMarkdownOverHTML:true,plainTextAsMarkdown:true});
+    },
   });
   const headings = () => { const result: Heading[] = []; const walk = (blocks: typeof editor.document) => { for (const block of blocks) { if (block.type === "heading") result.push({ id: block.id, text: textOf(block.content), level: block.props.level }); if (block.children?.length) walk(block.children); } }; walk(editor.document); return result; };
   const insertImages = async (files: File[], point?: { x: number; y: number }) => {
@@ -51,29 +60,20 @@ const DocumentEditor = forwardRef<EditorHandle, Props>(function DocumentEditor({
     async insertImage(file) { await insertImages([file]); },
     insertImages,
     async parseMarkdown(text) {
-      // External images become links; importing a note never silently contacts a third-party image host.
-      const safe = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, "[$1（外部图片，需另行上传）]($2)");
-      const parts = safe.split(/(\$\$[\s\S]*?\$\$)/g); const blocks: NativeBlock[] = [];
-      for (const part of parts) {
-        if (/^\$\$[\s\S]*\$\$$/.test(part)) blocks.push({ type: "math", props: { formula: part.slice(2, -2).trim() } });
-        else if (part.trim()) blocks.push(...await editor.tryParseMarkdownToBlocks(part));
-      }
-      return blocks;
+      return parseMathMarkdown(text,source=>editor.tryParseMarkdownToBlocks(source));
     },
     append(blocks) {
       if (!blocks.length) return;
       const first = editor.document[0];
-      if (editor.document.length === 1 && first.type === "paragraph" && first.content.length === 0 && first.children.length === 0) editor.replaceBlocks(editor.document, blocks as NativeBlock[]);
-      else editor.insertBlocks(blocks as NativeBlock[], editor.document[editor.document.length - 1], "after");
+      const normalized=normalizeMathBlocks(blocks) as NativeBlock[];
+      if (editor.document.length === 1 && first.type === "paragraph" && first.content.length === 0 && first.children.length === 0) editor.replaceBlocks(editor.document, normalized);
+      else editor.insertBlocks(normalized, editor.document[editor.document.length - 1], "after");
     },
-    replace(blocks) { editor.replaceBlocks(editor.document, blocks.length ? blocks as NativeBlock[] : [{ type: "paragraph" }]); },
+    replace(blocks) { editor.replaceBlocks(editor.document, blocks.length ? normalizeMathBlocks(blocks) as NativeBlock[] : [{ type: "paragraph" }]); },
     async markdown() {
-      // Preserve custom math/divider blocks explicitly because the generic lossy exporter cannot represent them.
-      const parts: string[] = [];
-      for (const block of editor.document) { if (block.type === "math") parts.push(`$$\n${block.props.formula}\n$$`); else if (block.type === "divider") parts.push("---"); else parts.push(await editor.blocksToMarkdownLossy([block])); }
-      return parts.join("\n\n");
+      return editor.blocksToMarkdownLossy(editor.document);
     },
-    insertFormula() { const anchor = editor.getTextCursorPosition().block; editor.insertBlocks([{ type: "math", props: { formula: "M = F \\cdot d" } }], anchor, "after"); },
+    insertFormula() { getMathSlashMenuItems(editor)[0]?.onItemClick(); },
   }));
   return <div className="document-editor" onKeyDownCapture={event => {
     if (!(event.ctrlKey || event.metaKey) || event.altKey || !['a','c'].includes(event.key.toLowerCase())) return;
@@ -83,6 +83,6 @@ const DocumentEditor = forwardRef<EditorHandle, Props>(function DocumentEditor({
     // Preserve native editor/table selection and copy. Only suppress their incidental viewport movement.
     const restore=()=>{if(selectionRestore.current===token&&root.isConnected&&scroller.isConnected){scroller.scrollTo({top,left,behavior:'instant'});}};
     queueMicrotask(restore);setTimeout(restore,0);setTimeout(restore,32);
-  }} onDoubleClick={event => { const element = event.target; if (element instanceof HTMLImageElement) onImageOpen?.(element.src); }} onClick={event => { const element = event.target; if (readOnly && element instanceof HTMLImageElement) onImageOpen?.(element.src); }}><BlockNoteView editor={editor} editable={!readOnly} theme={theme} onChange={() => { const outline = headings(); onChange?.(editor.document, outline); onHeadings?.(outline); }} /></div>;
+  }} onDoubleClick={event => { const element = event.target; if (element instanceof HTMLImageElement) onImageOpen?.(element.src); }} onClick={event => { const element = event.target; if (readOnly && element instanceof HTMLImageElement) onImageOpen?.(element.src); }}><BlockNoteView editor={editor} editable={!readOnly} theme={theme} slashMenu={false} onChange={() => { const outline = headings(); onChange?.(editor.document, outline); onHeadings?.(outline); }}><SuggestionMenuController triggerCharacter="/" getItems={async query=>filterSuggestionItems([...getDefaultReactSlashMenuItems(editor),...getMathSlashMenuItems(editor)],query)} /></BlockNoteView></div>;
 });
 export default memo(DocumentEditor);
