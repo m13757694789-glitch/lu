@@ -1,6 +1,7 @@
 import type { TransferObserver, UploadTransfer } from "./upload-progress.ts";
+import { readUploadBytes } from './upload-source.ts';
 
-type Plan = { id: string; partSize: number; parts: number; mime: string };
+type Plan = { id: string; partSize: number; parts: number; mime: string; size?: number };
 export type SignedPart = { url: string; fallbackUrl?: string; headers?: Record<string,string> };
 type Transport = {
   sign: (index: number) => Promise<SignedPart>;
@@ -22,6 +23,7 @@ export async function transferCloudParts(
   plan: Plan, file: Blob, hashes: {parts: readonly (string | Promise<string>)[]}, transport: Transport,
   progress: (value: number) => void, observe?: TransferObserver,
 ) {
+  const size = plan.size ?? file.size;
   const loaded = Array<number>(plan.parts).fill(0);
   const states = Array<UploadTransfer["stage"]>(plan.parts).fill("preparing");
   let next = 0; let failure: unknown; let failed = false;
@@ -32,8 +34,8 @@ export async function transferCloudParts(
     const bytes = loaded.reduce((sum, value) => sum + value, 0);
     if (now - sampleAt >= 1000) { speed = Math.max(0, (bytes - sampleBytes) * 1000 / (now - sampleAt)); sampleAt = now; sampleBytes = bytes; }
     const stage = states.includes("uploading") ? "uploading" : states.includes("retrying") ? "retrying" : states.includes("preparing") ? "preparing" : "verifying";
-    progress(Math.min(98, Math.floor(bytes / file.size * 98)));
-    observe?.({ stage, loaded: bytes, total: file.size, bytesPerSecond: stage === "uploading" ? speed : undefined });
+    progress(Math.min(98, Math.floor(bytes / size * 98)));
+    observe?.({ stage, loaded: bytes, total: size, bytesPerSecond: stage === "uploading" ? speed : undefined });
   };
   const pause = transport.pause || (attempt => new Promise(resolve => setTimeout(resolve, attempt * 1000)));
   const verify = async (index: number, expected: string) => {
@@ -56,7 +58,10 @@ export async function transferCloudParts(
       const index = next++;
       try {
         const expected=await hashes.parts[index];
-        const blob = file.slice(index * plan.partSize, Math.min(file.size, (index + 1) * plan.partSize), plan.mime);
+        // Each of the two lanes owns at most one in-memory segment. A retry must not
+        // read an Explorer/WeChat file reference that may have disappeared since hashing.
+        const content = await readUploadBytes(file, index * plan.partSize, Math.min(size, (index + 1) * plan.partSize));
+        const blob = new Blob([content], { type: plan.mime });
         const signed = storageUploadUrls(await transport.sign(index));
         let uploaded = false;
         for (let attempt = 0; attempt < 3; attempt++) {

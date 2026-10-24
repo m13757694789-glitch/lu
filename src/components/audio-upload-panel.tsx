@@ -1,6 +1,6 @@
 "use client";
-import { useState, useSyncExternalStore } from "react";
-import { Check, ChevronDown, ChevronUp, LoaderCircle, RotateCcw, X } from "lucide-react";
+import { useRef, useState, useSyncExternalStore } from "react";
+import { Check, ChevronDown, ChevronUp, FolderOpen, LoaderCircle, RotateCcw, X } from "lucide-react";
 import { AudioUploadQueue } from "@/lib/audio-upload-queue";
 import { bytes } from "@/lib/client";
 import type { AudioUploadTask } from "@/lib/audio-upload-queue";
@@ -21,10 +21,12 @@ function taskState(task: AudioUploadTask) {
 export default function AudioUploadPanel({ queue, openLesson }: { queue: AudioUploadQueue; openLesson: (id: string) => void }) {
   const tasks = useSyncExternalStore(queue.subscribe, queue.getSnapshot, queue.getServerSnapshot);
   const [collapsed, setCollapsed] = useState(false);
+  const sourceInput=useRef<HTMLInputElement>(null), reselectId=useRef('');
   if (!tasks.length) return null;
   const pending = tasks.filter(task => task.status === "queued" || task.status === "uploading").length;
   const storageFull=tasks.some(task=>task.status==='failed'&&(task.error?.includes('免费私有空间')||task.error?.includes('容量上限')));
   return <section className="audio-upload-panel" aria-label="录音上传任务">
+    <input ref={sourceInput} type="file" className="sr-only" aria-label="重新选择失败的录音" accept=".mp3,.m4a,.wav,.ogg,.oga,.opus,.aac,.flac,.webm" onChange={event=>{const file=event.target.files?.[0],id=reselectId.current;event.target.value='';reselectId.current='';if(file&&id)queue.reselect(id,file);}} />
     <div className="upload-panel-heading"><button type="button" aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}><strong>录音上传{pending ? ` · ${pending} 份进行中` : ""}</strong>{collapsed ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</button>{tasks.some(task => task.status === "completed") && <button className="text-button" onClick={() => queue.clearCompleted()}>清除已完成</button>}</div>
     {!collapsed && <><p className="upload-panel-hint">可切换课堂，请保持本页打开。</p>{storageFull&&<div className="upload-capacity-message" role="alert">云端剩余空间不足，失败的录音尚未保存到云端。请保留原文件，清理空间或扩容后再重试。<button className="text-button" onClick={()=>window.dispatchEvent(new Event('classnote-open-storage'))}>查看剩余空间</button></div>}<div className="upload-task-list">{tasks.map(task => <div className={`upload-task ${task.status}`} key={task.id}>
       <div className="upload-task-title"><span title={task.name}>{task.name}</span>{task.status === "completed" ? <Check size={15} /> : task.status === "uploading" ? <LoaderCircle size={15} className="spin" /> : null}</div>
@@ -32,7 +34,7 @@ export default function AudioUploadPanel({ queue, openLesson }: { queue: AudioUp
       <div className="upload-task-state" role="status">{taskState(task)}</div>
       {task.status === "uploading" && <progress aria-label={`${task.name}上传进度`} max={100} value={task.progress} />}
       {task.warning && <p className="inline-error">{task.warning}</p>}
-      {task.status === "failed" && <div className="upload-task-actions"><button className="text-button" onClick={() => queue.retry(task.id)}><RotateCcw size={13} />重试</button><button className="text-button" onClick={() => queue.dismiss(task.id)}><X size={13} />移除失败任务</button></div>}
+      {task.status === "failed" && <div className="upload-task-actions">{!task.needsReselect&&<button className="text-button" onClick={() => queue.retry(task.id)}><RotateCcw size={13} />重试</button>}<button className="text-button" onClick={()=>{reselectId.current=task.id;sourceInput.current?.click();}}><FolderOpen size={13} />重新选择文件</button><button className="text-button" onClick={() => queue.dismiss(task.id)}><X size={13} />移除失败任务</button></div>}
     </div>)}</div></>}
   </section>;
 }

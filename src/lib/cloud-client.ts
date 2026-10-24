@@ -4,6 +4,7 @@ import { api, downloadText } from "./client";
 import type { Attachment } from "./models";
 import type { TransferObserver } from "./upload-progress";
 import { transferCloudParts, type SignedPart } from "./cloud-upload-transfer";
+import { UploadSourceError, verifyUploadSource } from './upload-source';
 
 function putPart(url:string,blob:Blob,progress:(loaded:number)=>void,headers?:Record<string,string>) {
   return new Promise<void>((resolve,reject)=>{
@@ -27,9 +28,9 @@ function hashForUpload(file:File,partSize:number,partCount:number) {
   if(typeof Worker==='undefined') fallback();
   else {
     worker=new Worker(new URL('./upload-hash.worker.ts',import.meta.url));
-    worker.onmessage=(event:MessageEvent<{index?:number;sha256?:string;error?:string}>)=>{
+    worker.onmessage=(event:MessageEvent<{index?:number;sha256?:string;error?:string;sourceError?:boolean}>)=>{
       const data=event.data;
-      if(data.error){worker?.terminate();failed(new Error(data.error));}
+      if(data.error){worker?.terminate();failed(data.sourceError ? new UploadSourceError(data.error) : new Error(data.error));}
       else if(data.index!==undefined&&data.sha256)parts[data.index].resolve(data.sha256);
       else if(data.sha256){worker?.terminate();full.resolve(data.sha256);}
     };
@@ -41,14 +42,15 @@ function hashForUpload(file:File,partSize:number,partCount:number) {
 export async function uploadCloud<T>(path:string,file:File,progress:(value:number)=>void,observe?:TransferObserver):Promise<T> {
   if(path==='restore') return (await import('./cloud-backup-client')).restoreCloud(file,progress) as Promise<T>;
   observe?.({stage:'preparing',loaded:0,total:file.size});
-  const upload=await api<{id:string;partSize:number;parts:number;mime:string}>(path,'POST',{name:file.name,size:file.size});
+  const size=await verifyUploadSource(file);
+  const upload=await api<{id:string;partSize:number;parts:number;mime:string}>(path,'POST',{name:file.name,size});
   let completed=false;
   let hashes:ReturnType<typeof hashForUpload>|undefined;
   try {
     const sign=(index:number)=>api<SignedPart>(`uploads/${upload.id}/sign`,'POST',{index});
     hashes=hashForUpload(file,upload.partSize,upload.parts);
     const initialSignatures=await Promise.all(Array.from({length:Math.min(2,upload.parts)},(_,index)=>sign(index)));
-    await transferCloudParts(upload,file,hashes,{
+    await transferCloudParts({...upload,size},file,hashes,{
       sign:index=>index<initialSignatures.length?Promise.resolve(initialSignatures[index]):sign(index),
       put:putPart,
       verify:(index,sha256)=>api<{sha256:string}>(`uploads/${upload.id}/part`,'POST',{index,sha256}),

@@ -34,7 +34,7 @@ export async function handleCloud(request:Request) {
     let result:unknown;
     if(method==='GET'&&resource==='library'&&!id) result=await store.library();
     else if(method==='GET'&&resource==='search'&&!id) result=await store.search((new URL(request.url).searchParams.get('q')||'').slice(0,200));
-    else if(method==='GET'&&resource==='health'&&!id) result={app:'ClassNote',version:'1.2.0',storage:attachmentStorage()==='r2'?'r2-private':'supabase-private'};
+    else if(method==='GET'&&resource==='health'&&!id) result={app:'ClassNote',version:'1.2.1',storage:attachmentStorage()==='r2'?'r2-private':'supabase-private'};
     else if(method==='GET'&&resource==='usage'&&!id) {
       const provider=attachmentStorage();
       const [rows,capacity]=await Promise.all([

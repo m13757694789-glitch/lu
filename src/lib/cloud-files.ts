@@ -5,13 +5,14 @@ import { CloudStore, checked, type CloudAttachment } from "./cloud-store.ts";
 import { cloudConfig } from "./cloud-auth.ts";
 import { byteRange } from "./ranges.ts";
 import { attachmentStorage, privateObjectPath, signR2Upload, r2ObjectUrl, removeR2Objects } from './r2-storage.ts';
+import { uploadMetadata } from './upload-metadata.ts';
 
 const types: Record<string,["audio"|"image",string]>={
   mp3:['audio','audio/mpeg'],m4a:['audio','audio/mp4'],wav:['audio','audio/wav'],ogg:['audio','audio/ogg'],oga:['audio','audio/ogg'],opus:['audio','audio/ogg'],aac:['audio','audio/aac'],flac:['audio','audio/flac'],webm:['audio','audio/webm'],
   jpg:['image','image/jpeg'],jpeg:['image','image/jpeg'],png:['image','image/png'],webp:['image','image/webp'],gif:['image','image/gif'],
 };
 export async function beginUpload(store:CloudStore,lessonId:string,input:unknown) {
-  const data=z.object({name:z.string().min(1).max(240),size:z.number().int().positive().max(8*1024**3)}).parse(input);
+  const data=uploadMetadata(input);
   await store.lesson(lessonId);
   const extension=data.name.split('.').at(-1)?.toLowerCase()||''; const type=types[extension];
   if(!type) throw new AppError("不支持这个文件格式，请上传常见音频或 JPG、PNG、WEBP、GIF 图片");

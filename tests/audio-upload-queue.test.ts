@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AudioUploadQueue } from '../src/lib/audio-upload-queue.ts';
 import type { Attachment } from '../src/lib/models.ts';
+import { UploadSourceError } from '../src/lib/upload-source.ts';
 const file=(name:string)=>new File(['test'],name);
 const target=(lessonId:string)=>({lessonId,lessonTitle:lessonId,courseId:'course-A'});
 const result=(lessonId:string,name:string)=>({id:crypto.randomUUID(),lessonId,name} as Attachment);
@@ -29,4 +30,19 @@ test('replacement failure never deletes the old file and cleanup failure never r
   const id=queue.enqueue(target('A'),file('new.wav'),'old-id');await settled(queue);assert.equal(deletes,0);
   queue.retry(id);await settled(queue);assert.equal(deletes,1);assert.equal(queue.getSnapshot()[0].status,'completed');assert.match(queue.getSnapshot()[0].warning!,/旧录音未能删除/);
   queue.retry(id);await settled(queue);assert.equal(uploads,2);
+});
+
+test('unreadable recordings require a fresh selection and keep their target, order, and replacement protection',async()=>{
+  const started:string[]=[],deleted:string[]=[];
+  const queue=new AudioUploadQueue(async(lessonId,upload)=>{started.push(`${lessonId}/${upload.name}`);if(upload.name==='missing.m4a')throw new UploadSourceError();return result(lessonId,upload.name);},async id=>{deleted.push(id);});
+  const empty=queue.enqueue(target('A'),new File([],'empty.m4a'),'old-recording');
+  const missing=queue.enqueue(target('B'),file('missing.m4a'));
+  queue.enqueue(target('C'),file('valid.m4a'));await settled(queue);
+  assert.deepEqual(started,['B/missing.m4a','C/valid.m4a']);
+  assert.equal(queue.getSnapshot()[0].needsReselect,true);assert.equal(queue.getSnapshot()[1].needsReselect,true);
+  assert.deepEqual(deleted,[]);queue.retry(empty);assert.equal(queue.hasPending(),false);
+  queue.reselect(empty,file('recovered.m4a'));queue.reselect(missing,file('other-recovered.m4a'));await settled(queue);
+  assert.deepEqual(started,['B/missing.m4a','C/valid.m4a','A/recovered.m4a','B/other-recovered.m4a']);
+  assert.deepEqual(deleted,['old-recording']);assert(queue.getSnapshot().every(task=>task.status==='completed'));
+  assert.equal(queue.getSnapshot()[0].id,empty);assert.equal(queue.getSnapshot()[1].id,missing);
 });
