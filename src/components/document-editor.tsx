@@ -1,6 +1,6 @@
 "use client";
 import { forwardRef, memo, useEffect, useImperativeHandle, useRef } from "react";
-import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, type PartialBlock } from "@blocknote/core";
+import { BlockNoteSchema, createExtension, defaultBlockSpecs, defaultInlineContentSpecs, type PartialBlock } from "@blocknote/core";
 import { filterSuggestionItems } from '@blocknote/core/extensions';
 import { zh } from "@blocknote/core/locales";
 import { createReactBlockSpec, getDefaultReactSlashMenuItems, SuggestionMenuController, useCreateBlockNote } from "@blocknote/react";
@@ -10,9 +10,12 @@ import { inlineMathSpec,mathBlockSpec } from './math-specs';
 import { textOf } from "@/lib/models";
 import { extractMath, normalizeMathBlocks, parseMathMarkdown } from '@/lib/math-markdown';
 import { mathInputRules } from '@/lib/math-input-rules';
+import { hasMarkdownTaskList, normalizeTaskListBlocks } from '@/lib/task-lists';
 
 const DividerBlock = createReactBlockSpec({ type: "divider", propSchema: {}, content: "none" }, { render: () => <hr className="document-divider" /> });
 const schema = BlockNoteSchema.create({ blockSpecs: { ...defaultBlockSpecs, mathBlock: mathBlockSpec, divider: DividerBlock() }, inlineContentSpecs:{...defaultInlineContentSpecs,math:inlineMathSpec} });
+const normalizeEditorBlocks = (blocks: unknown[]) => normalizeTaskListBlocks(normalizeMathBlocks(blocks));
+const strikeShortcut = createExtension({key:'classnote-strike-shortcut',keyboardShortcuts:{'Mod-Shift-x':({editor})=>{editor.toggleStyles({strike:true});return true;}}});
 type NativeBlock = PartialBlock<typeof schema.blockSchema, typeof schema.inlineContentSchema, typeof schema.styleSchema>;
 export type Heading = { id: string; text: string; level: number };
 export type EditorHandle = {
@@ -27,12 +30,12 @@ export type EditorHandle = {
 type Props = { initialContent: unknown[]; readOnly?: boolean; theme: "light" | "dark"; upload?: (file: File) => Promise<string>; onChange?: (content: unknown[], headings: Heading[]) => void; onHeadings?: (headings: Heading[]) => void; onImageOpen?: (url: string) => void };
 const DocumentEditor = forwardRef<EditorHandle, Props>(function DocumentEditor({ initialContent, readOnly = false, theme, upload, onChange, onHeadings, onImageOpen }, ref) {
   const selectionRestore = useRef(0);
-  const editor = useCreateBlockNote({ schema, extensions:[mathInputRules], dictionary: {...zh,math:mathLocales.zh}, initialContent: initialContent.length ? normalizeMathBlocks(initialContent) as NativeBlock[] : undefined,
+  const editor = useCreateBlockNote({ schema, extensions:[mathInputRules,strikeShortcut], dictionary: {...zh,math:mathLocales.zh}, initialContent: initialContent.length ? normalizeEditorBlocks(initialContent) as NativeBlock[] : undefined,
     uploadFile: upload,
     pasteHandler: ({event,editor,defaultPasteHandler}) => {
       const text=event.clipboardData?.getData('text/plain')||event.clipboardData?.getData('text/markdown')||'';
       const inSource=editor.transact(tr=>!!tr.selection.$from.parent.type.spec.code);
-      if(!inSource&&!event.clipboardData?.types.includes('blocknote/html')&&extractMath(text).formulas.length){
+      if(!inSource&&!event.clipboardData?.types.includes('blocknote/html')&&(hasMarkdownTaskList(text)||extractMath(text).formulas.length)){
         const blocks=parseMathMarkdown(text,source=>editor.tryParseMarkdownToBlocks(source));
         editor.pasteHTML(editor.blocksToFullHTML(blocks as NativeBlock[]),true);return true;
       }
@@ -65,11 +68,11 @@ const DocumentEditor = forwardRef<EditorHandle, Props>(function DocumentEditor({
     append(blocks) {
       if (!blocks.length) return;
       const first = editor.document[0];
-      const normalized=normalizeMathBlocks(blocks) as NativeBlock[];
+      const normalized=normalizeEditorBlocks(blocks) as NativeBlock[];
       if (editor.document.length === 1 && first.type === "paragraph" && first.content.length === 0 && first.children.length === 0) editor.replaceBlocks(editor.document, normalized);
       else editor.insertBlocks(normalized, editor.document[editor.document.length - 1], "after");
     },
-    replace(blocks) { editor.replaceBlocks(editor.document, blocks.length ? normalizeMathBlocks(blocks) as NativeBlock[] : [{ type: "paragraph" }]); },
+    replace(blocks) { editor.replaceBlocks(editor.document, blocks.length ? normalizeEditorBlocks(blocks) as NativeBlock[] : [{ type: "paragraph" }]); },
     async markdown() {
       return editor.blocksToMarkdownLossy(editor.document);
     },
