@@ -9,7 +9,7 @@ let queue: Promise<unknown> = Promise.resolve();
 let mermaidModule: Promise<typeof import('mermaid')> | undefined;
 
 export function sanitizeDiagramSVG(source: string, generated = false): DiagramResult {
-  if (source.length > 200_000) throw new Error('SVG 超过 200 KB，请简化图形；源码已保留。');
+  if (new TextEncoder().encode(source).byteLength > 200_000) throw new Error('SVG 超过 200 KB，请简化图形；源码已保留。');
   if (/<!DOCTYPE|<!ENTITY/i.test(source)) throw new Error('SVG 不支持文档类型或实体声明。');
   const doc = new DOMParser().parseFromString(source, 'image/svg+xml');
   if (doc.querySelector('parsererror') || doc.documentElement.localName !== 'svg' || doc.documentElement.namespaceURI !== SVG_NS) throw new Error('SVG 格式不正确，请检查标签是否闭合及 xmlns 声明。');

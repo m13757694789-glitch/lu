@@ -36,4 +36,5 @@ test('Mermaid rejects external-resource styles and configuration before creating
 A-->B
 classDef x fill:u\72l(https://example.com/pixel);`,'a'.repeat(50_001)]) assert.throws(()=>validateMermaidSource(source));
   assert.doesNotThrow(()=>validateMermaidSource('flowchart TD\nA[识别构件] --> B[检查结果]\nclassDef highlight fill:#ccc,stroke:#777;'));
+  assert.throws(()=>validateMermaidSource('字'.repeat(17_000)),/50 KB/);
 });

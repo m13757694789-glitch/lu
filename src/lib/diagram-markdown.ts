@@ -9,7 +9,7 @@ export const hasDiagramFence = (text: string) => /^ {0,3}(?:`{3,}|~{3,})(?:merma
 // Check before Mermaid creates its measuring DOM: source cannot request remote
 // images or CSS resources, or change the site's rendering/security settings.
 export function validateMermaidSource(source: string) {
-  if (source.length > 50_000) throw new Error('Mermaid 超过 50 KB，请拆分为较小的图表。');
+  if (new TextEncoder().encode(source).byteLength > 50_000) throw new Error('Mermaid 超过 50 KB，请拆分为较小的图表。');
   if (/%%\s*\{|^\s*---|\bimg\s*:|<\s*(?:img|image|script|foreignObject)\b|\burl\s*\(|(?:^|\n)\s*(?:classDef|style|linkStyle)\b[^\n]*\\/im.test(source)) throw new Error('不支持 Mermaid 配置指令、HTML、外部资源或 CSS 转义；请使用静态图表语法。');
 }
 
