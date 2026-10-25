@@ -11,9 +11,11 @@ import { textOf } from "@/lib/models";
 import { extractMath, normalizeMathBlocks, parseMathMarkdown } from '@/lib/math-markdown';
 import { mathInputRules } from '@/lib/math-input-rules';
 import { hasMarkdownTaskList, normalizeTaskListBlocks } from '@/lib/task-lists';
+import { hasDiagramFence, prepareDiagramClipboardHTML } from '@/lib/diagram-markdown';
+import { diagramCodeBlockSpec, DiagramViewContext } from './diagram-code-block';
 
 const DividerBlock = createReactBlockSpec({ type: "divider", propSchema: {}, content: "none" }, { render: () => <hr className="document-divider" /> });
-const schema = BlockNoteSchema.create({ blockSpecs: { ...defaultBlockSpecs, mathBlock: mathBlockSpec, divider: DividerBlock() }, inlineContentSpecs:{...defaultInlineContentSpecs,math:inlineMathSpec} });
+const schema = BlockNoteSchema.create({ blockSpecs: { ...defaultBlockSpecs, codeBlock:diagramCodeBlockSpec, mathBlock: mathBlockSpec, divider: DividerBlock() }, inlineContentSpecs:{...defaultInlineContentSpecs,math:inlineMathSpec} });
 const normalizeEditorBlocks = (blocks: unknown[]) => normalizeTaskListBlocks(normalizeMathBlocks(blocks));
 const strikeShortcut = createExtension({key:'classnote-strike-shortcut',keyboardShortcuts:{'Mod-Shift-x':({editor})=>{editor.toggleStyles({strike:true});return true;}}});
 type NativeBlock = PartialBlock<typeof schema.blockSchema, typeof schema.inlineContentSchema, typeof schema.styleSchema>;
@@ -35,7 +37,14 @@ const DocumentEditor = forwardRef<EditorHandle, Props>(function DocumentEditor({
     pasteHandler: ({event,editor,defaultPasteHandler}) => {
       const text=event.clipboardData?.getData('text/plain')||event.clipboardData?.getData('text/markdown')||'';
       const inSource=editor.transact(tr=>!!tr.selection.$from.parent.type.spec.code);
-      if(!inSource&&!event.clipboardData?.types.includes('blocknote/html')&&(hasMarkdownTaskList(text)||extractMath(text).formulas.length)){
+      if(!inSource&&!event.clipboardData?.types.includes('blocknote/html')){
+        const html = !hasDiagramFence(text) && prepareDiagramClipboardHTML(event.clipboardData?.getData('text/html') || '');
+        if(html){
+          const blocks=normalizeEditorBlocks(editor.tryParseHTMLToBlocks(html));
+          editor.pasteHTML(editor.blocksToFullHTML(blocks as NativeBlock[]),true);return true;
+        }
+      }
+      if(!inSource&&!event.clipboardData?.types.includes('blocknote/html')&&(hasDiagramFence(text)||hasMarkdownTaskList(text)||extractMath(text).formulas.length)){
         const blocks=parseMathMarkdown(text,source=>editor.tryParseMarkdownToBlocks(source));
         editor.pasteHTML(editor.blocksToFullHTML(blocks as NativeBlock[]),true);return true;
       }
@@ -86,6 +95,6 @@ const DocumentEditor = forwardRef<EditorHandle, Props>(function DocumentEditor({
     // Preserve native editor/table selection and copy. Only suppress their incidental viewport movement.
     const restore=()=>{if(selectionRestore.current===token&&root.isConnected&&scroller.isConnected){scroller.scrollTo({top,left,behavior:'instant'});}};
     queueMicrotask(restore);setTimeout(restore,0);setTimeout(restore,32);
-  }} onDoubleClick={event => { const element = event.target; if (element instanceof HTMLImageElement) onImageOpen?.(element.src); }} onClick={event => { const element = event.target; if (readOnly && element instanceof HTMLImageElement) onImageOpen?.(element.src); }}><BlockNoteView editor={editor} editable={!readOnly} theme={theme} slashMenu={false} onChange={() => { const outline = headings(); onChange?.(editor.document, outline); onHeadings?.(outline); }}><SuggestionMenuController triggerCharacter="/" getItems={async query=>filterSuggestionItems([...getDefaultReactSlashMenuItems(editor),...getMathSlashMenuItems(editor)],query)} /></BlockNoteView></div>;
+  }} onDoubleClick={event => { const element = event.target; if (element instanceof HTMLImageElement) onImageOpen?.(element.src); }} onClick={event => { const element = event.target; if (readOnly && element instanceof HTMLImageElement) onImageOpen?.(element.src); }}><DiagramViewContext.Provider value={{theme,readOnly}}><BlockNoteView editor={editor} editable={!readOnly} theme={theme} slashMenu={false} onChange={() => { const outline = headings(); onChange?.(editor.document, outline); onHeadings?.(outline); }}><SuggestionMenuController triggerCharacter="/" getItems={async query=>filterSuggestionItems([...getDefaultReactSlashMenuItems(editor),...getMathSlashMenuItems(editor)],query)} /></BlockNoteView></DiagramViewContext.Provider></div>;
 });
 export default memo(DocumentEditor);

@@ -165,6 +165,20 @@ input::placeholder,textarea::placeholder { color:var(--muted); }
 .document-editor .bn-inline-content:before { color:var(--muted)!important; }
 .document-editor pre { max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere; }
 .document-editor table { max-width:100%; }
+.document-editor .bn-block-content[data-content-type="codeBlock"]:has(.diagram-block) { background:transparent;padding:0;color:var(--ink);min-width:0; }
+.diagram-block { width:100%;min-width:0;margin:14px 0;border:1px solid var(--line);border-radius:6px;background:var(--panel);overflow:hidden;font-family:inherit; }
+.diagram-toolbar { display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted); }
+.diagram-toolbar>span { margin-right:auto; }
+.diagram-toolbar button { color:var(--purple);padding:3px 0;white-space:nowrap; }
+.diagram-toolbar select { border:1px solid var(--line);border-radius:3px;background:var(--paper);font-size:11px;max-width:100px; }
+.diagram-preview { overflow:auto;max-width:100%;max-height:640px;padding:14px; }
+.diagram-frame { display:block;height:auto;min-height:80px;min-width:0;margin-inline:auto;border:0;background:transparent; }
+.diagram-loading { display:block;padding:24px;color:var(--muted);font-size:12px; }
+.document-editor .diagram-source { display:block;width:100%;margin:0;padding:14px;border:0;border-radius:0;background:var(--paper);font-family:Consolas,monospace;font-size:13px;line-height:1.6;max-height:520px;resize:vertical;overflow:auto; }
+.document-editor .diagram-model-source[hidden] { display:none!important; }
+.diagram-error { padding:12px 14px;color:var(--danger);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere; }
+.diagram-error small { display:block;color:var(--muted);margin-top:5px; }
+@media (max-width:760px) { .diagram-preview { padding:8px;max-height:480px; }.diagram-toolbar { padding:8px;gap:8px; } }
 .document-hint { color:var(--muted);font-size:10px;margin-top:26px;line-height:1.8;opacity:.75; }
 .document-hint span { margin:0 6px; }
 .document-end { margin:56px 0 0;display:flex;align-items:center;justify-content:center;gap:12px;font-size:10px;color:var(--muted);opacity:.5;letter-spacing:1px; }

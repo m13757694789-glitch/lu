@@ -77,8 +77,7 @@ function restoreBlocks(blocks:unknown[],formulas:Formula[]):unknown[] {
 }
 
 export function parseMathMarkdown(markdown:string,parse:(text:string)=>unknown[]) {
-  const safe=markdown.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g,'[$1（外部图片，需另行上传）]($2)');
-  const {text,formulas}=extractMath(safe);
+  const {text,formulas}=extractMath(markdown);
   return restoreBlocks(parse(text),formulas);
 }
 
