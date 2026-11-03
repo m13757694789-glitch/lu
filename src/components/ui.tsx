@@ -7,6 +7,6 @@ export function Modal({ open, onOpenChange, title, description, children, wide =
 export function Menu({ trigger, children, label }: { trigger: React.ReactNode; children: React.ReactNode; label: string }) {
   return <DropdownMenu.Root><DropdownMenu.Trigger asChild><button className="icon-button menu-trigger" aria-label={label}>{trigger}</button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="dropdown-content" align="end" sideOffset={6}>{children}</DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root>;
 }
-export function MenuItem({ children, onSelect, danger = false }: { children: React.ReactNode; onSelect: () => void; danger?: boolean }) {
-  return <DropdownMenu.Item className={`dropdown-item ${danger ? "danger" : ""}`} onSelect={onSelect}>{children}</DropdownMenu.Item>;
+export function MenuItem({ children, onSelect, danger = false, disabled = false }: { children: React.ReactNode; onSelect: () => void; danger?: boolean; disabled?: boolean }) {
+  return <DropdownMenu.Item className={`dropdown-item ${danger ? "danger" : ""}`} onSelect={onSelect} disabled={disabled}>{children}</DropdownMenu.Item>;
 }

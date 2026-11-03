@@ -67,6 +67,15 @@ input::placeholder,textarea::placeholder { color:var(--muted); }
 .lesson-link small { display:block;color:var(--muted);font-size:10px;margin-top:4px;white-space:normal; }
 .lesson-row .menu-trigger { min-width:21px;width:21px;opacity:0; }
 .lesson-row:hover .menu-trigger,.lesson-row:focus-within .menu-trigger { opacity:1; }
+.lesson-drag-handle { display:flex;align-items:center;justify-content:center;width:16px;min-width:16px;height:27px;padding:0;color:var(--muted);opacity:0;cursor:grab;border-radius:3px; }
+.lesson-row:hover .lesson-drag-handle,.lesson-row:focus-within .lesson-drag-handle { opacity:1; }
+.lesson-drag-handle:active { cursor:grabbing; }
+.lesson-row.lesson-dragging { opacity:.45; }
+.lesson-row.lesson-drop-before:after,.lesson-row.lesson-drop-after:after { content:"";position:absolute;left:0;right:0;height:2px;background:var(--purple);pointer-events:none; }
+.lesson-row.lesson-drop-before:after { top:-2px; }
+.lesson-row.lesson-drop-after:after { bottom:-2px; }
+.dropdown-item[data-disabled] { opacity:.45;cursor:not-allowed; }
+@media(max-width:760px){.lesson-drag-handle{display:none}.lesson-row .menu-trigger{opacity:1}}
 .add-first-lesson { color:var(--muted);font-size:11px;padding:9px 6px;text-align:left; }
 .add-first-lesson:hover { color:var(--purple); }
 .new-course-button { display:flex;align-items:center;gap:9px;color:var(--muted);padding:13px 16px;font-size:12px;margin-top:9px; }
