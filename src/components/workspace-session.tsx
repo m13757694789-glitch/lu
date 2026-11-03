@@ -3,6 +3,8 @@ import { Component, useCallback, useEffect, useRef, useState, type ReactNode } f
 import { api, uploadFile } from "@/lib/client";
 import { exportRecoveryDrafts, exportUIError, recordUIError } from "@/lib/ui-recovery";
 import { AudioUploadQueue } from "@/lib/audio-upload-queue";
+import { CourseAudioImports } from "@/lib/course-audio-imports";
+import type { LessonDetail } from "@/lib/models";
 import AudioUploadPanel from "./audio-upload-panel";
 import Workspace from "./workspace";
 
@@ -21,14 +23,15 @@ export default function WorkspaceSession(props: { cloud: boolean; email?: string
     (lessonId, file, progress, observe) => uploadFile(`lessons/${lessonId}/attachments`, file, progress, observe),
     async id => { await api(`files/${id}`, "DELETE"); },
   ));
+  const [courseAudioImports] = useState(() => new CourseAudioImports(input => api<LessonDetail>('lessons', 'POST', input), audioUploads));
   const [epoch, setEpoch] = useState(0);
   const open = useRef<((id: string) => void) | null>(null);
   const register = useCallback((handler: ((id: string) => void) | null) => { open.current = handler; }, []);
   useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => { if (audioUploads.hasPending()) { event.preventDefault(); event.returnValue = ""; } };
+    const warn = (event: BeforeUnloadEvent) => { if (audioUploads.hasPending() || courseAudioImports.hasPending()) { event.preventDefault(); event.returnValue = ""; } };
     window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn);
-  }, [audioUploads]);
-  return <><WorkspaceBoundary key={epoch} retry={() => setEpoch(value => value + 1)}><Workspace {...props} audioUploads={audioUploads} onOpenLessonReady={register} /></WorkspaceBoundary><AudioUploadPanel queue={audioUploads} openLesson={id => {
+  }, [audioUploads, courseAudioImports]);
+  return <><WorkspaceBoundary key={epoch} retry={() => setEpoch(value => value + 1)}><Workspace {...props} audioUploads={audioUploads} courseAudioImports={courseAudioImports} onOpenLessonReady={register} /></WorkspaceBoundary><AudioUploadPanel queue={audioUploads} imports={courseAudioImports} openLesson={id => {
     if (open.current) open.current(id);
     else { window.history.replaceState({}, "", `?lesson=${id}`); setEpoch(value => value + 1); }
   }} /></>;

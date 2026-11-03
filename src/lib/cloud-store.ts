@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { AppError, courseSchema, lessonSchema, lessonPatchSchema } from "./validation.ts";
+import { AppError, courseSchema, lessonCreateSchema, lessonPatchSchema } from "./validation.ts";
 import { mapAttachmentUrls, textOf, type Attachment, type Course, type Lesson, type Library } from "./models.ts";
 
 export type CloudAttachment = Attachment & { part_size: number; ready: boolean; storage_provider: 'supabase' | 'r2' };
@@ -80,8 +80,16 @@ export class CloudStore {
     await this.course(id); return checked<Course>(this.client.from('cn_courses').update(patch).eq('id',id).select(courseColumns).single());
   }
   async createLesson(input: unknown) {
-    const data=lessonSchema.parse(input); await this.course(data.courseId);
-    const row = await checked<Lesson>(this.client.from('cn_lessons').insert({id:randomUUID(),...data,content:[{id:randomUUID(),type:'paragraph',content:[]}]}).select(`${lessonColumns},content`).single());
+    const data=lessonCreateSchema.parse(input); await this.course(data.courseId);
+    const id=data.id||randomUUID();
+    const result=await this.client.from('cn_lessons').insert({...data,id,content:[{id:randomUUID(),type:'paragraph',content:[]}]}).select(`${lessonColumns},content`).single();
+    // A lost response must not create another lesson when the same import retries.
+    if(data.id&&result.error?.code==='23505') {
+      const existing=await this.detail(id);
+      if(existing.courseId!==data.courseId) throw new AppError('这份导入记录已属于另一门课程，请重新添加文件。',409);
+      return existing;
+    }
+    const row = await checked<Lesson>(Promise.resolve(result));
     return {...row,attachments:[]};
   }
   async updateLesson(id: string,input: unknown) {

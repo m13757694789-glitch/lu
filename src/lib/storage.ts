@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { textOf, mapAttachmentUrls, type Attachment, type Course, type Lesson, type Library } from "./models.ts";
 
-import { AppError, idSchema, courseSchema, lessonSchema, lessonPatchSchema } from "./validation.ts";
+import { AppError, idSchema, courseSchema, lessonSchema, lessonCreateSchema, lessonPatchSchema } from "./validation.ts";
 export { AppError, idSchema, courseSchema, lessonSchema, contentSchema } from "./validation.ts";
 const now = () => new Date().toISOString();
 
@@ -56,8 +56,14 @@ export class Store {
     this.db.prepare("UPDATE courses SET name=?, color=?, description=?, archived=? WHERE id=?").run(data.name ?? old.name, data.color ?? old.color, data.description ?? old.description, data.archived === undefined ? old.archived : Number(data.archived), id); return this.course(id);
   }
   createLesson(input: unknown) {
-    const data = lessonSchema.parse(input); this.course(data.courseId); const stamp = now();
-    const id = randomUUID(); const content = [{ id: randomUUID(), type: "paragraph", content: [] }];
+    const data = lessonCreateSchema.parse(input); this.course(data.courseId); const stamp = now();
+    const id = data.id || randomUUID();
+    const existing = this.db.prepare("SELECT courseId FROM lessons WHERE id=?").get(id);
+    if (existing) {
+      if (existing.courseId !== data.courseId) throw new AppError("这份导入记录已属于另一门课程，请重新添加文件。", 409);
+      return this.detail(id);
+    }
+    const content = [{ id: randomUUID(), type: "paragraph", content: [] }];
     this.db.prepare("INSERT INTO lessons VALUES(?,?,?,?,?,0,?,?,NULL)").run(id, data.courseId, data.title, data.date, JSON.stringify(content), stamp, stamp); return this.detail(id);
   }
   updateLesson(id: string, input: unknown) {

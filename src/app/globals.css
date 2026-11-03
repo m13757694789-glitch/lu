@@ -52,6 +52,9 @@ input::placeholder,textarea::placeholder { color:var(--muted); }
 .course-add,.course-row>.menu-trigger { min-width:23px;width:23px;opacity:0; }
 .course-row:hover .course-add,.course-row:hover>.menu-trigger,.course-row:focus-within .course-add,.course-row:focus-within>.menu-trigger { opacity:1; }
 .course-row.current>.course-link { color:var(--ink); }
+.course-row.course-audio-drop { background:var(--purple-soft);outline:2px solid var(--purple);outline-offset:-1px; }
+.course-row.course-audio-drop .course-link { color:var(--purple); }
+@media(max-width:760px){.course-row>.menu-trigger{opacity:1}}
 .course-lessons { margin:3px 0 8px 18px;border-left:1px solid var(--line);padding:0 0 0 7px; }
 .lesson-row { display:flex;align-items:center;border-radius:4px;margin:3px 0;position:relative;min-height:33px; }
 .lesson-row:hover { background:var(--hover); }
